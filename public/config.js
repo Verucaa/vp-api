@@ -31,6 +31,20 @@ window.WOLF_CONFIG = {
     { name: "SoundCloud Search & Downloader", category: "search", endpoint: "/search/soundcloud", method: ["GET", "POST"], description: "Search tracks or extract direct stream URL from SoundCloud", params: { query: { type: "string", required: true, maxLength: 2048, description: "Search keyword or direct SoundCloud track URL" } } },
     { name: "YouTube Search", category: "search", endpoint: "/search/ytsearch", enabled: false, unavailable_reason: "Nonaktif di Cloudflare Workers (501): yt-search membutuhkan pola jaringan Node yang tidak didukung adapter Worker. Gunakan adapter Node/Vercel untuk endpoint ini.", method: ["GET", "POST"], description: "Search and retrieve video metadata from YouTube", params: { query: { type: "string", required: true, description: "Search keyword" }, limit: { type: "number", required: false, description: "Maximum results to return (default 10, max 20)" } } },
     { name: "Temp Mail Generator & Inbox", category: "tools", endpoint: "/tools/tempmail", method: ["GET", "POST"], description: "Membuat email sementara baru atau membaca pesan masuk menggunakan token", params: { token: { type: "string", required: false, maxLength: 2048, description: "Token akses inbox untuk mengecek pesan masuk (kosongkan jika ingin membuat email baru)" } } },
-    { name: "Web to APK", category: "tools", endpoint: "/tools/web2apk", enabled: false, unavailable_reason: "Nonaktif di Cloudflare Workers (501): target website arbitrer tidak dapat diamankan dengan DNS socket pinning pada Workers. Gunakan adapter Node/Vercel untuk endpoint ini.", method: ["GET", "POST"], description: "Convert a public HTTPS website URL into an installable Android APK", params: { url: { type: "string", required: true, maxLength: 2048, description: "Public HTTPS target website URL" }, name: { type: "string", required: true, maxLength: 60, description: "Application name (up to 60 characters)" }, icon_url: { type: "string", required: false, maxLength: 2048, description: "Public HTTPS image URL for app icon (optional)" }, package_name: { type: "string", required: false, maxLength: 255, description: "Android package name (for example com.example.app)" }, version_name: { type: "string", required: false, maxLength: 30, description: "Version name (default: 1.0.0)" }, version_code: { type: "number", required: false, minimum: 1, maximum: 2100000000, description: "Version code (default: 1)" } } }
+    { name: "Web to APK", category: "tools", endpoint: "/tools/web2apk", enabled: false, unavailable_reason: "Nonaktif di Cloudflare Workers (501): target website arbitrer tidak dapat diamankan dengan DNS socket pinning pada Workers. Gunakan adapter Node/Vercel untuk endpoint ini.", method: ["GET", "POST"], description: "Convert a public HTTPS website URL into an installable Android APK", params: { url: { type: "string", required: true, maxLength: 2048, description: "Public HTTPS target website URL" }, name: { type: "string", required: true, maxLength: 60, description: "Application name (up to 60 characters)" }, icon_url: { type: "string", required: false, maxLength: 2048, description: "Public HTTPS image URL for app icon (optional)" }, package_name: { type: "string", required: false, maxLength: 255, description: "Android package name (for example com.example.app)" }, version_name: { type: "string", required: false, maxLength: 30, description: "Version name (default: 1.0.0)" }, version_code: { type: "number", required: false, minimum: 1, maximum: 2100000000, description: "Version code (default: 1)" } } },
+    {
+    path: "/film/7reels",
+    category: "film",
+    method: ["GET", "POST"],
+    description: "Scraper 7reels.cc — homepage/search/detail/streams/direct.",
+    params: ["action", "query", "page", "id", "type", "season", "episode", "language", "player"],
+  },
+  {
+    path: "/film/hura",
+    category: "film",
+    method: ["GET", "POST"],
+    description: "Scraper hurawatch.sx via TMDB — home/movies/tv/top-imdb/search/detail.",
+    params: ["action", "query", "page", "filter", "type", "id"],
+  }
   ]
 };
