@@ -10,7 +10,34 @@ import tempmail from "../plugins/tools/tempmail.js";
 import film7reels from "../plugins/film/7reels.js";
 import filmHura from "../plugins/film/hura.js";
 
-export const activeWorkerPlugins = [
+function expandRoutes(entries) {
+  const out = [];
+  for (const entry of entries) {
+    const { routes, ...base } = entry.handler || {};
+    if (routes && typeof routes === "object") {
+      for (const [sub, def] of Object.entries(routes)) {
+        out.push({
+          endpoint: `${entry.endpoint}/${sub}`,
+          handler: {
+            name: def.name || `${base.name} ${sub}`,
+            category: base.category,
+            method: def.method || base.method || ["GET"],
+            timeout: def.timeout ?? base.timeout ?? 45_000,
+            cache: def.cache ?? base.cache,
+            description: def.description || base.description,
+            params: def.params || {},
+            execute: def.execute,
+          },
+        });
+      }
+    } else {
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
+export const activeWorkerPlugins = expandRoutes([
   { endpoint: "/downloader/capcut", handler: capcut },
   { endpoint: "/downloader/instagram", handler: instagram },
   { endpoint: "/downloader/youtube", handler: youtube },
@@ -21,8 +48,8 @@ export const activeWorkerPlugins = [
   { endpoint: "/search/soundcloud", handler: soundcloud },
   { endpoint: "/tools/tempmail", handler: tempmail },
   { endpoint: "/film/7reels", handler: film7reels },
-  { endpoint: "/film/hura", handler: filmHura }
-];
+  { endpoint: "/film/hura", handler: filmHura },
+]);
 
 export const disabledWorkerPlugins = [
   {
