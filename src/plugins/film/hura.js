@@ -18,13 +18,68 @@ const GENRE_MAP = {
 };
 
 const SERVER_PATTERNS = {
-  Server_1_VidCore: { movie: "https://vidcore.net/movie/", tv: "https://vidcore.net/tv/", suffix: "?autoPlay=true" },
-  Server_2_VidGod: { movie: "https://vidgod.net/movie/", tv: "https://vidgod.net/tv/", suffix: "" },
-  Server_3_VidNest: { movie: "https://vidnest.fun/movie/", tv: "https://vidnest.fun/tv/", suffix: "" },
-  Server_4_VidFast: { movie: "https://vidfast.pro/movie/", tv: "https://vidfast.pro/tv/", suffix: "?autoPlay=true" },
-  Server_5_VidSrcEmbed: { movie: "https://vidsrc-embed.ru/embed/movie/", tv: "https://vidsrc-embed.ru/embed/tv/", suffix: "" },
-  Server_6_VidEasy: { movie: "https://player.videasy.net/movie/", tv: "https://player.videasy.net/tv/", suffix: "" },
+  Server_1_VidCore: {
+    movie: "https://vidcore.net/movie/",
+    tv: "https://vidcore.net/tv/",
+    suffix: "?autoPlay=true",
+    domain: "vidcore.net",
+    direct: true,
+  },
+  Server_2_VidGod: {
+    movie: "https://vidgod.net/movie/",
+    tv: "https://vidgod.net/tv/",
+    suffix: "",
+    domain: "vidgod.net",
+    direct: false,
+  },
+  Server_3_VidNest: {
+    movie: "https://vidnest.fun/movie/",
+    tv: "https://vidnest.fun/tv/",
+    suffix: "",
+    domain: "vidnest.fun",
+    direct: false,
+  },
+  Server_4_VidFast: {
+    movie: "https://vidfast.pro/movie/",
+    tv: "https://vidfast.pro/tv/",
+    suffix: "?autoPlay=true",
+    domain: "vidfast.pro",
+    direct: true,
+  },
+  Server_5_VidSrcEmbed: {
+    movie: "https://vidsrc-embed.ru/embed/movie/",
+    tv: "https://vidsrc-embed.ru/embed/tv/",
+    suffix: "",
+    domain: "vidsrc-embed.ru",
+    direct: false,
+  },
+  Server_6_VidEasy: {
+    movie: "https://player.videasy.net/movie/",
+    tv: "https://player.videasy.net/tv/",
+    suffix: "",
+    domain: "player.videasy.net",
+    direct: true,
+  },
 };
+
+// Domain player yang boleh di-resolve via enc-dec (dinamis). Harus cocok
+// dengan domain pada SERVER_PATTERNS yang `direct: true`.
+const PLAYER_DOMAINS = ["vidcore.net", "vidfast.pro", "vidfast.vc"];
+
+function playerAllowedHosts() {
+  const hosts = ["enc-dec.app"];
+  for (const d of PLAYER_DOMAINS) {
+    hosts.push(d, `www.${d}`, `cdn.${d}`, `api.${d}`);
+  }
+  return hosts;
+}
+
+function assertDynamicPlayerUrl(urlStr) {
+  const host = new URL(urlStr).hostname.toLowerCase();
+  const ok = PLAYER_DOMAINS.some((d) => host === d || host.endsWith("." + d));
+  if (!ok) throw new Error(`Provider host tidak diizinkan: ${host}`);
+  return urlStr;
+}
 
 let cachedApiKey = null;
 
@@ -107,6 +162,8 @@ function formatItem(item, typeOverride = null) {
     streams: generateStreams(item.id, mediaType),
   };
 }
+
+/* ---------- ACTIONS: home, movies, tv, top-imdb, search, detail ---------- */
 
 async function scrapeHome(signal) {
   const apiKey = await getApiKey(signal);
@@ -282,19 +339,228 @@ async function scrapeTVDetail(id, signal) {
   return formatted;
 }
 
+/* ---------- ACTION: streams (embed URL list) ---------- */
+
+function getEmbedList(id, type, season, episode) {
+  const servers = [];
+  for (const [name, p] of Object.entries(SERVER_PATTERNS)) {
+    const url =
+      type === "movie"
+        ? `${p.movie}${id}${p.suffix}`
+        : `${p.tv}${id}/${season}/${episode}${p.suffix}`;
+    servers.push({
+      server: name,
+      domain: p.domain,
+      supportsDirect: p.direct,
+      url,
+    });
+  }
+  return {
+    id: String(id),
+    type,
+    season: type === "tv" ? season : null,
+    episode: type === "tv" ? episode : null,
+    total: servers.length,
+    servers,
+  };
+}
+
+/* ---------- ACTION: direct (.m3u8 resolver) ---------- */
+
+async function getDirectVideasy(id, type, seasonNum, episodeNum, signal) {
+  const apiKey = await getApiKey(signal);
+  const details = await tmdbFetch(`${type}/${id}`, null, apiKey, signal);
+  const title = details.title || details.name || "";
+  const releaseDate = details.release_date || details.first_air_date || "";
+  const year = releaseDate ? releaseDate.split("-")[0] : "";
+  const imdbId = details.imdb_id || "";
+  const encTitle = encodeURIComponent(encodeURIComponent(title));
+
+  const headers = {
+    Accept: "*/*",
+    Origin: "https://player.videasy.to",
+    Referer: "https://player.videasy.to/",
+    "User-Agent": UA,
+  };
+
+  const seedRes = await safeFetch(
+    `https://api.wingsdatabase.com/seed?mediaId=${id}`,
+    { allowedHosts: ["api.wingsdatabase.com"], headers, signal },
+    15000
+  );
+  if (!seedRes.ok) throw new Error(`wingsdatabase seed ${seedRes.status}`);
+  const seed = (await seedRes.json()).seed;
+
+  const sourcesUrl =
+    type === "tv"
+      ? `https://api.wingsdatabase.com/cdn/sources-with-title?title=${encTitle}&mediaType=tv&year=${year}&episodeId=${episodeNum}&seasonId=${seasonNum}&tmdbId=${id}&imdbId=${imdbId}&enc=2&seed=${seed}`
+      : `https://api.wingsdatabase.com/cdn/sources-with-title?title=${encTitle}&mediaType=movie&year=${year}&tmdbId=${id}&imdbId=${imdbId}&enc=2&seed=${seed}`;
+
+  const sourcesRes = await safeFetch(
+    sourcesUrl,
+    { allowedHosts: ["api.wingsdatabase.com"], headers, signal },
+    15000
+  );
+  if (!sourcesRes.ok) throw new Error(`wingsdatabase sources ${sourcesRes.status}`);
+  const encData = await sourcesRes.json();
+
+  const decRes = await safeFetch(
+    "https://enc-dec.app/api/dec-videasy",
+    {
+      allowedHosts: ["enc-dec.app"],
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": UA },
+      body: JSON.stringify({ text: encData, id: String(id), seed }),
+      signal,
+    },
+    15000
+  );
+  if (!decRes.ok) throw new Error(`enc-dec dec-videasy ${decRes.status}`);
+  const decData = await decRes.json();
+  if (decData.status !== 200) throw new Error(decData.error || "Decryption failed");
+  return { player: "videasy", status: "success", result: decData.result };
+}
+
+async function resolvePagePlayer(cfg, id, type, seasonNum, episodeNum, signal) {
+  const isTv = type === "tv";
+  const baseUrl = isTv
+    ? `https://${cfg.domain}/tv/${id}/${seasonNum}/${episodeNum}/`
+    : `https://${cfg.domain}/movie/${id}/`;
+
+  const pageRes = await safeFetch(
+    baseUrl,
+    { allowedHosts: playerAllowedHosts(), headers: { "User-Agent": UA }, signal },
+    15000
+  );
+  if (!pageRes.ok) throw new Error(`Player page ${cfg.domain} ${pageRes.status}`);
+  const html = await pageRes.text();
+  const match = html.match(/\\"en\\":\\"(.*?)\\"/) || html.match(/"en":"(.*?)"/);
+  if (!match) throw new Error(`Encrypted content tidak ditemukan di ${cfg.domain}`);
+  const text = match[1];
+
+  const partsRes = await safeFetch(
+    `https://enc-dec.app/api/enc-${cfg.key}?text=${encodeURIComponent(text)}`,
+    { allowedHosts: ["enc-dec.app"], headers: { "User-Agent": UA }, signal },
+    15000
+  );
+  if (!partsRes.ok) throw new Error(`enc-dec enc-${cfg.key} ${partsRes.status}`);
+  const partsData = await partsRes.json();
+  if (partsData.status !== 200) throw new Error(partsData.error || "Encryption failed");
+  const { servers, stream, token } = partsData.result;
+
+  const hdr = {
+    "User-Agent": UA,
+    Referer: `https://${cfg.domain}/`,
+    "X-Requested-With": "XMLHttpRequest",
+    "X-CSRF-Token": token,
+    "Content-Type": "application/json",
+  };
+
+  assertDynamicPlayerUrl(servers);
+  const serversEncRes = await safeFetch(
+    servers,
+    {
+      allowedHosts: playerAllowedHosts(),
+      method: "POST",
+      headers: hdr,
+      body: "{}",
+      signal,
+    },
+    15000
+  );
+  if (!serversEncRes.ok) throw new Error(`servers fetch ${serversEncRes.status}`);
+  const serversEncText = await serversEncRes.text();
+
+  const decServersRes = await safeFetch(
+    `https://enc-dec.app/api/dec-${cfg.key}`,
+    {
+      allowedHosts: ["enc-dec.app"],
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": UA },
+      body: JSON.stringify({ text: serversEncText }),
+      signal,
+    },
+    15000
+  );
+  if (!decServersRes.ok) throw new Error(`enc-dec dec-servers ${decServersRes.status}`);
+  const decServers = await decServersRes.json();
+  if (decServers.status !== 200) throw new Error("Failed to decrypt servers");
+
+  const serverData = decServers.result[0].data;
+  const streamEncUrl = `${stream}/${serverData}`;
+  assertDynamicPlayerUrl(streamEncUrl);
+  const streamEncRes = await safeFetch(
+    streamEncUrl,
+    {
+      allowedHosts: playerAllowedHosts(),
+      method: "POST",
+      headers: hdr,
+      body: "{}",
+      signal,
+    },
+    15000
+  );
+  if (!streamEncRes.ok) throw new Error(`stream fetch ${streamEncRes.status}`);
+  const streamEncText = await streamEncRes.text();
+
+  const decStreamRes = await safeFetch(
+    `https://enc-dec.app/api/dec-${cfg.key}`,
+    {
+      allowedHosts: ["enc-dec.app"],
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": UA },
+      body: JSON.stringify({ text: streamEncText }),
+      signal,
+    },
+    15000
+  );
+  if (!decStreamRes.ok) throw new Error(`enc-dec dec-stream ${decStreamRes.status}`);
+  const decStream = await decStreamRes.json();
+  if (decStream.status !== 200) throw new Error("Failed to decrypt stream");
+  return { player: cfg.key, status: "success", result: decStream.result };
+}
+
+async function getDirect(id, type, seasonNum, episodeNum, player, signal) {
+  const pKey = String(player || "videasy").toLowerCase();
+  const cleanType = type === "tv" ? "tv" : "movie";
+
+  if (cleanType === "tv" && (seasonNum == null || episodeNum == null)) {
+    throw new Error("season dan episode wajib untuk TV pada action=direct");
+  }
+
+  if (pKey === "videasy") {
+    return await getDirectVideasy(id, cleanType, seasonNum, episodeNum, signal);
+  }
+
+  const configs = {
+    vidcore: { key: "vidcore", domain: "vidcore.net" },
+    vidfast: { key: "vidfast", domain: "vidfast.pro" },
+  };
+  const cfg = configs[pKey];
+  if (!cfg) {
+    throw new Error(
+      `Player tidak didukung untuk direct: ${player}. Pilih videasy, vidcore, atau vidfast.`
+    );
+  }
+  return await resolvePagePlayer(cfg, id, cleanType, seasonNum, episodeNum, signal);
+}
+
+/* ---------- PLUGIN ---------- */
+
 export default {
   name: "HuraWatch Film",
   category: "film",
   description:
-    "Scraper hurawatch.sx via TMDB — home, movies, tv, top-imdb, search, detail (movie/tv lengkap dengan season/episode & URL stream).",
+    "Scraper hurawatch.sx via TMDB — home, movies, tv, top-imdb, search, detail (lengkap season/episode), streams (embed URL 6 server), dan direct (.m3u8 videasy/vidcore/vidfast).",
   method: ["GET", "POST"],
   timeout: 120_000,
   params: {
     action: {
       type: "string",
       required: true,
-      enum: ["home", "movies", "tv", "top-imdb", "search", "detail"],
-      description: "Aksi: home | movies | tv | top-imdb | search | detail",
+      enum: ["home", "movies", "tv", "top-imdb", "search", "detail", "streams", "direct"],
+      description:
+        "Aksi: home | movies | tv | top-imdb | search | detail | streams | direct",
     },
     query: {
       type: "string",
@@ -305,7 +571,7 @@ export default {
       type: "number",
       minimum: 1,
       maximum: 500,
-      description: "Halaman hasil (default 1; untuk movies/tv/top-imdb/search).",
+      description: "Halaman hasil (default 1; movies/tv/top-imdb/search).",
     },
     filter: {
       type: "string",
@@ -323,12 +589,29 @@ export default {
     type: {
       type: "string",
       enum: ["movie", "tv"],
-      description: "Tipe media (top-imdb & detail; default movie).",
+      description: "Tipe media (top-imdb, detail, streams, direct; default movie).",
     },
     id: {
       type: "number",
       minimum: 1,
-      description: "TMDB ID (wajib untuk action=detail).",
+      description: "TMDB ID (wajib untuk detail/streams/direct).",
+    },
+    season: {
+      type: "number",
+      minimum: 1,
+      maximum: 100,
+      description: "Nomor season (wajib untuk TV: streams/direct).",
+    },
+    episode: {
+      type: "number",
+      minimum: 1,
+      maximum: 2000,
+      description: "Nomor episode (wajib untuk TV: streams/direct).",
+    },
+    player: {
+      type: "string",
+      enum: ["videasy", "vidcore", "vidfast"],
+      description: "Player untuk action=direct (default videasy).",
     },
   },
   execute: async (_req, _res, { input, signal }) => {
@@ -350,6 +633,25 @@ export default {
         return type === "tv"
           ? await scrapeTVDetail(input.id, signal)
           : await scrapeMovieDetail(input.id, signal);
+      }
+      case "streams": {
+        if (input.id == null) throw new Error("id wajib untuk action=streams");
+        const type = input.type === "tv" ? "tv" : "movie";
+        if (type === "tv" && (input.season == null || input.episode == null)) {
+          throw new Error("season dan episode wajib untuk TV pada action=streams");
+        }
+        return getEmbedList(input.id, type, input.season, input.episode);
+      }
+      case "direct": {
+        if (input.id == null) throw new Error("id wajib untuk action=direct");
+        return await getDirect(
+          input.id,
+          input.type || "movie",
+          input.season,
+          input.episode,
+          input.player || "videasy",
+          signal
+        );
       }
       default:
         throw new Error(`action tidak dikenal: ${input.action}`);
