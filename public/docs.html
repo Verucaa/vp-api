@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#06101f" />
+  <meta name="description" content="Dokumentasi endpoint VP API, parameter, method, dan contoh request tanpa API key." />
+  <title>Docs — VP API</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <script defer src="/config.js"></script>
+  <script defer src="/app.js"></script>
+</head>
+<body data-page="docs">
+  <a class="skip-link" href="#main-content">Lewati ke konten</a>
+  <div class="ambient ambient-one" aria-hidden="true"></div><div class="ambient ambient-two" aria-hidden="true"></div><div class="grid-glow" aria-hidden="true"></div>
+  <div class="bubble-field" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="VP API beranda"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M7 22.5 16 6l9 16.5H7Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12 22.5 16 15l4 7.5" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="16" cy="25.5" r="1.5" fill="currentColor"/></svg></span><span class="brand-name" id="brand-name">VP API</span></a>
+    <nav class="main-nav" id="primary-nav" aria-label="Navigasi utama"><a href="/">Beranda</a><a href="/docs.html" aria-current="page">Docs</a><a href="/how-to.html">Cara Menggunakan</a></nav>
+    <a class="header-cta" href="/how-to.html">Contoh kode <span aria-hidden="true">→</span></a>
+    <button class="menu-toggle" type="button" aria-label="Buka menu navigasi" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span><span></span></button>
+  </header>
+  <main id="main-content">
+    <section class="docs-banner section-shell" aria-label="VP API developer platform">
+      <video id="docs-banner-video" class="docs-banner-video" muted loop playsinline preload="metadata" aria-hidden="true" hidden></video>
+      <div class="banner-fallback" aria-hidden="true"><div class="banner-grid"></div><div class="banner-orbit"></div><div class="banner-orbit orbit-two"></div><div class="banner-core"></div></div>
+      <div class="banner-content"><span class="banner-kicker">VP API / DEVELOPER PLATFORM</span><h2>One API.<br /><span>Endless possibilities.</span></h2><p>Dari ide ke integrasi. Tanpa batas kreativitas.</p></div>
+      <div class="banner-meta">API REFERENCE <span>//</span> V1.2</div>
+      <button id="banner-motion" class="button button-outline" type="button" aria-label="Jeda video banner" hidden>Jeda video</button>
+    </section>
+    <section class="page-hero section-shell docs-hero">
+      <div class="eyebrow"><span class="eyebrow-dot"></span> EXPLORE THE API</div>
+      <h1>Dokumentasi <span>endpoint.</span></h1>
+      <p>Satu tempat untuk semua integrasi. Pilih endpoint, buka <strong>Try it</strong>, lalu kirim request dengan <strong>Confirm</strong>. Publik, tanpa API key.</p>
+      <div class="page-hero-actions"><a class="button button-primary" href="/how-to.html">Panduan integrasi <span aria-hidden="true">↗</span></a><a class="button button-outline" id="openapi-link" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI ↗</a></div>
+    </section>
+    <section class="notice-bar section-shell" id="backend-notice" hidden><span class="notice-icon" aria-hidden="true">i</span><p id="backend-notice-text">Demo UI statis — semua request API dinonaktifkan.</p><span class="notice-label">PRATINJAU UI</span></section>
+    <section class="catalog-section section-shell docs-catalog" id="endpoint-list" aria-labelledby="catalog-heading">
+      <div class="section-heading"><div><div class="section-kicker">ENDPOINT EXPLORER</div><h2 id="catalog-heading">Lebih ringkas. Lebih mudah dicoba.</h2><p id="docs-intro">Memuat registry endpoint dari backend…</p></div><div class="catalog-count" role="status"><span class="count-pulse"></span><span id="catalog-status">Memuat endpoint</span></div></div>
+      <div class="catalog-toolbar"><div class="category-tabs" id="category-tabs" role="group" aria-label="Filter kategori"></div><label class="search-box"><span aria-hidden="true">⌕</span><input id="search-input" aria-label="Cari endpoint" type="search" placeholder="Cari nama atau route…" autocomplete="off" /><kbd>⌘ K</kbd></label></div>
+      <div class="endpoint-list" id="endpoint-container"><div class="loading-card" role="status">Memuat katalog endpoint…</div></div>
+    </section>
+    <section class="docs-note section-shell">
+      <article class="access-note"><span aria-hidden="true">✓</span><span><strong>Akses publik tanpa API key.</strong> Batas default 100 request per 60 detik per IP, digabung untuk semua endpoint. Jendela otomatis dimulai ulang setelah 60 detik; respons 429 menyertakan <code>Retry-After</code>. Header <code>RateLimit-Limit</code>, <code>RateLimit-Remaining</code>, dan <code>RateLimit-Reset</code> menunjukkan kuota backend.</span></article>
+      <article class="workers-note"><h3>Batas runtime Cloudflare Workers</h3><p><code>/bypass/skiplink</code>, <code>/tools/web2apk</code>, dan <code>/search/ytsearch</code> nonaktif di Workers dan mengembalikan <strong>501</strong>. Playground menonaktifkan Confirm ketika registry menandainya tidak tersedia. Ketiga endpoint tetap didukung pada adapter Node/Vercel; ketersediaan provider eksternal dapat berubah.</p></article>
+      <p>Butuh contoh lintas bahasa? <a class="text-link" href="/how-to.html">Buka Cara Menggunakan →</a></p>
+    </section>
+  </main>
+  <footer class="site-footer"><div class="footer-inner"><a class="brand footer-brand" href="/" aria-label="VP API beranda"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M7 22.5 16 6l9 16.5H7Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12 22.5 16 15l4 7.5" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="16" cy="25.5" r="1.5" fill="currentColor"/></svg></span><span class="brand-name" id="footer-brand-name">VP API</span></a><p id="footer-text">Dibuat untuk integrasi yang lebih sederhana.</p><span class="footer-copy">© <span id="footer-year">2026</span> <span id="footer-copyright-name">VP API</span></span></div></footer>
+  <dialog class="app-dialog announcement-dialog" id="announcement-dialog" aria-labelledby="announcement-title"><div class="dialog-glow" aria-hidden="true"></div><button class="dialog-close" type="button" data-close-announcement aria-label="Tutup pengumuman">×</button><div class="announcement-icon" aria-hidden="true">i</div><div class="dialog-kicker">PENGUMUMAN</div><h2 id="announcement-title">Ada kabar baru.</h2><p class="announcement-message" id="announcement-message"></p><label class="remember-choice"><input id="announcement-suppress" type="checkbox" /><span class="custom-check" aria-hidden="true">✓</span><span>Jangan tampilkan lagi</span></label><button class="button button-primary announcement-action" id="announcement-action" type="button">Mengerti <span aria-hidden="true">→</span></button></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

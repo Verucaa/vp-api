@@ -1,0 +1,43 @@
+{
+  "name": "wolf-api-improved",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --test",
+    "demo:build": "node scripts/prepare-demo.js",
+    "cf:assets": "node scripts/prepare-worker-assets.js",
+    "cf:types": "wrangler types",
+    "cf:typecheck": "npm run cf:types && tsc --noEmit -p tsconfig.worker.json",
+    "cf:build": "npm run cf:assets && npm run cf:typecheck && wrangler deploy --dry-run",
+    "cf:dev": "npm run cf:assets && wrangler dev",
+    "cf:deploy": "npm run cf:assets && npm run cf:typecheck && wrangler deploy"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "undici": "^6.21.1",
+    "yt-search": "^2.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.44.0"
+  },
+  "overrides": {
+    "iconv-lite": "0.7.1",
+    "minimatch": "3.1.4"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261023.1": true
+  }
+}
