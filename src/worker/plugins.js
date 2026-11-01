@@ -13,18 +13,18 @@ import filmHura from "../plugins/film/hura.js";
 function expandRoutes(entries) {
   const out = [];
   for (const entry of entries) {
-    const { routes, ...base } = entry.handler || {};
-    if (routes && typeof routes === "object") {
-      for (const [sub, def] of Object.entries(routes)) {
+    const h = entry.handler || {};
+    if (h.routes && typeof h.routes === "object" && typeof h.execute !== "function") {
+      for (const [sub, def] of Object.entries(h.routes)) {
         out.push({
           endpoint: `${entry.endpoint}/${sub}`,
           handler: {
-            name: def.name || `${base.name} ${sub}`,
-            category: base.category,
-            method: def.method || base.method || ["GET"],
-            timeout: def.timeout ?? base.timeout ?? 45_000,
-            cache: def.cache ?? base.cache,
-            description: def.description || base.description,
+            name: def.name || `${h.name} ${sub}`,
+            category: h.category,
+            method: def.method || h.method || ["GET"],
+            timeout: Math.min(Math.max(Number(def.timeout) || Number(h.timeout) || 45_000, 1000), 300_000),
+            cache: typeof def.cache === "number" && def.cache > 0 ? def.cache : (h.cache || null),
+            description: def.description || h.description || "",
             params: def.params || {},
             execute: def.execute,
           },
