@@ -1,573 +1,244 @@
 import { safeFetch } from "../../plugin-runtime.js";
 
+/* ===== CORE ===== */
 const BASE_URL = "https://7reels.cc";
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
-
-// Provider domains untuk resolusi "direct" (vidcore/vidup/vidfast).
-const PLAYER_DOMAINS = [
-  "vidcore.net",
-  "vidup.to",
-  "vidfast.vc",
-  "vidfast.pro",
-  "vidfast.to",
-];
-
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+const PLAYER_DOMAINS = ["vidcore.net", "vidup.to", "vidfast.vc", "vidfast.pro", "vidfast.to"];
 let cachedEmbedKey = null;
 
 function playerAllowedHosts() {
   const hosts = ["enc-dec.app"];
-  for (const d of PLAYER_DOMAINS) {
-    hosts.push(d, `www.${d}`, `cdn.${d}`, `api.${d}`);
-  }
+  for (const d of PLAYER_DOMAINS) hosts.push(d, `www.${d}`, `cdn.${d}`, `api.${d}`);
   return hosts;
 }
-
-function assertDynamicPlayerUrl(urlStr) {
-  const host = new URL(urlStr).hostname.toLowerCase();
-  const ok = PLAYER_DOMAINS.some((d) => host === d || host.endsWith("." + d));
-  if (!ok) throw new Error(`Provider host tidak diizinkan: ${host}`);
-  return urlStr;
+function assertDynamicPlayerUrl(u) {
+  const h = new URL(u).hostname.toLowerCase();
+  if (!PLAYER_DOMAINS.some((d) => h === d || h.endsWith("." + d))) throw new Error(`Host tidak diizinkan: ${h}`);
+  return u;
 }
 
 async function getEmbedKey(signal) {
   if (cachedEmbedKey) return cachedEmbedKey;
   const headers = { "User-Agent": UA };
   try {
-    const homeRes = await safeFetch(
-      BASE_URL,
-      { allowedHosts: ["7reels.cc"], headers, signal },
-      8000
-    );
-    if (!homeRes.ok) throw new Error("homepage fetch failed");
-    const homeText = await homeRes.text();
-    const m1 =
-      homeText.match(/src="(\/assets\/index-[a-zA-Z0-9]{8}\.js)"/) ||
-      homeText.match(/href="(\/assets\/index-[a-zA-Z0-9]{8}\.js)"/);
-    if (!m1) throw new Error("index bundle not found");
-
-    const mainRes = await safeFetch(
-      `${BASE_URL}${m1[1]}`,
-      { allowedHosts: ["7reels.cc"], headers, signal },
-      8000
-    );
-    if (!mainRes.ok) throw new Error("main bundle fetch failed");
-    const mainText = await mainRes.text();
-
-    const m2 = mainText.match(/([a-zA-Z0-9_-]*AdSafetyWarning-[a-zA-Z0-9]{8}\.js)/);
-    if (!m2) throw new Error("AdSafetyWarning chunk not found");
-
-    const chunkRes = await safeFetch(
-      `${BASE_URL}/assets/${m2[1]}`,
-      { allowedHosts: ["7reels.cc"], headers, signal },
-      8000
-    );
-    if (!chunkRes.ok) throw new Error("warning chunk fetch failed");
-    const chunkText = await chunkRes.text();
-
-    const m3 = chunkText.match(/key_[a-f0-9]+/i);
-    if (!m3) throw new Error("embedKey pattern not found");
-
+    const h = await safeFetch(BASE_URL, { allowedHosts: ["7reels.cc"], headers, signal }, 8000);
+    if (!h.ok) throw 0;
+    const m1 = (await h.text()).match(/(?:\/assets\/index-[a-zA-Z0-9]{8}\.js)/);
+    if (!m1) throw 0;
+    const m = await safeFetch(`${BASE_URL}${m1[0]}`, { allowedHosts: ["7reels.cc"], headers, signal }, 8000);
+    if (!m.ok) throw 0;
+    const m2 = (await m.text()).match(/([a-zA-Z0-9_-]*AdSafetyWarning-[a-zA-Z0-9]{8}\.js)/);
+    if (!m2) throw 0;
+    const c = await safeFetch(`${BASE_URL}/assets/${m2[1]}`, { allowedHosts: ["7reels.cc"], headers, signal }, 8000);
+    if (!c.ok) throw 0;
+    const m3 = (await c.text()).match(/key_[a-f0-9]+/i);
+    if (!m3) throw 0;
     cachedEmbedKey = m3[0];
-    return cachedEmbedKey;
-  } catch {
-    cachedEmbedKey = "key_c90081fa77254eb5";
-    return cachedEmbedKey;
-  }
+  } catch { cachedEmbedKey = "key_c90081fa77254eb5"; }
+  return cachedEmbedKey;
 }
 
 async function apiGet(path, params, signal) {
-  const url = new URL(`${BASE_URL}${path}`);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
-    }
-  }
-  const res = await safeFetch(
-    url.href,
-    {
-      allowedHosts: ["7reels.cc"],
-      headers: {
-        "User-Agent": UA,
-        Accept: "application/json",
-        Referer: `${BASE_URL}/`,
-      },
-      signal,
-    },
-    15000
-  );
-  if (!res.ok) throw new Error(`7reels API ${res.status} for ${path}`);
-  return await res.json();
+  const u = new URL(`${BASE_URL}${path}`);
+  if (params) for (const [k, v] of Object.entries(params)) if (v != null) u.searchParams.set(k, String(v));
+  const r = await safeFetch(u.href, { allowedHosts: ["7reels.cc"], headers: { "User-Agent": UA, Accept: "application/json", Referer: `${BASE_URL}/` }, signal }, 15000);
+  if (!r.ok) throw new Error(`7reels API ${r.status} ${path}`);
+  return await r.json();
 }
 
 async function getHomepage(signal) {
-  const [featured, topReels] = await Promise.all([
-    apiGet("/api/featured", null, signal),
-    apiGet("/api/top-reels", null, signal),
-  ]);
-  return {
-    featured: featured.featured || {},
-    topReels: {
-      trending: topReels.trending || [],
-      topOverall: topReels.topOverall || [],
-      country: topReels.country || "",
-    },
-  };
+  const [f, t] = await Promise.all([apiGet("/api/featured", null, signal), apiGet("/api/top-reels", null, signal)]);
+  return { featured: f.featured || {}, topReels: { trending: t.trending || [], topOverall: t.topOverall || [], country: t.country || "" } };
 }
 
 async function doSearch(query, page, signal) {
-  const data = await apiGet(
-    "/api/search/smart",
-    { q: query, page: String(page || 1) },
-    signal
-  );
-  return {
-    query,
-    page: parseInt(page || 1, 10),
-    total: (data.results || []).length,
-    results: data.results || [],
-  };
+  const d = await apiGet("/api/search/smart", { q: query, page: String(page || 1) }, signal);
+  return { query, page: parseInt(page || 1, 10), total: (d.results || []).length, results: d.results || [] };
 }
 
 async function getDetails(id, type, signal) {
-  const cleanType = type === "tv" ? "tv" : "movie";
-  const [details, credits] = await Promise.all([
-    apiGet(`/api/tmdb/${cleanType}/${id}`, null, signal),
-    apiGet(`/api/tmdb/${cleanType}/${id}/credits`, null, signal),
-  ]);
-  return {
-    id: String(id),
-    type: cleanType,
-    title: details.title || details.name || "",
-    originalTitle: details.original_title || details.original_name || "",
-    overview: details.overview || "",
-    poster: details.poster_path
-      ? `https://image.tmdb.org/t/p/w500${details.poster_path}`
-      : null,
-    backdrop: details.backdrop_path
-      ? `https://image.tmdb.org/t/p/w1280${details.backdrop_path}`
-      : null,
-    rating: details.vote_average || null,
-    releaseDate: details.release_date || details.first_air_date || "",
-    genres: details.genres || [],
-    cast: credits.cast || [],
-    crew: credits.crew || [],
-  };
+  const t = type === "tv" ? "tv" : "movie";
+  const [dt, cr] = await Promise.all([apiGet(`/api/tmdb/${t}/${id}`, null, signal), apiGet(`/api/tmdb/${t}/${id}/credits`, null, signal)]);
+  return { id: String(id), type: t, title: dt.title || dt.name || "", originalTitle: dt.original_title || dt.original_name || "", overview: dt.overview || "", poster: dt.poster_path ? `https://image.tmdb.org/t/p/w500${dt.poster_path}` : null, backdrop: dt.backdrop_path ? `https://image.tmdb.org/t/p/w1280${dt.backdrop_path}` : null, rating: dt.vote_average || null, releaseDate: dt.release_date || dt.first_air_date || "", genres: dt.genres || [], cast: cr.cast || [], crew: cr.crew || [] };
 }
 
-async function getEpisodes(tvId, seasonNum, signal) {
-  const data = await apiGet(
-    `/api/tmdb/tv/${tvId}/season/${seasonNum}`,
-    null,
-    signal
-  );
-  return {
-    tvId: String(tvId),
-    seasonNumber: parseInt(seasonNum, 10),
-    episodes: (data.episodes || []).map((ep) => ({
-      id: ep.id,
-      episodeNumber: ep.episode_number,
-      name: ep.name || "",
-      overview: ep.overview || "",
-      airDate: ep.air_date || "",
-      rating: ep.vote_average || null,
-      stillPath: ep.still_path
-        ? `https://image.tmdb.org/t/p/w300${ep.still_path}`
-        : null,
-    })),
-  };
+async function getEpisodes(id, season, signal) {
+  const d = await apiGet(`/api/tmdb/tv/${id}/season/${season}`, null, signal);
+  return { tvId: String(id), seasonNumber: parseInt(season, 10), episodes: (d.episodes || []).map((e) => ({ id: e.id, episodeNumber: e.episode_number, name: e.name || "", overview: e.overview || "", airDate: e.air_date || "", rating: e.vote_average || null, stillPath: e.still_path ? `https://image.tmdb.org/t/p/w300${e.still_path}` : null })) };
 }
 
-async function getStreamUrls(id, type, seasonNum, episodeNum, language, signal) {
-  const isTv = type === "tv";
-  const subParam = language === "english" ? "&sub=en" : "";
-  const embedKey = await getEmbedKey(signal);
-
-  const players = [
-    { key: "strigil", label: "Strigil", quality: "4K HDR" },
-    { key: "videasy", label: "VidEasy", quality: "4K" },
-    { key: "vidsuper", label: "VidSuper", quality: "4K" },
-    { key: "vidcore", label: "VidCore", quality: "1080p" },
-    { key: "vidrock", label: "AdRock", quality: "1080p" },
-    { key: "vidsrc0", label: "VidSrc", quality: "1080p" },
-    { key: "vidlink", label: "VidLink", quality: "1080p" },
-    { key: "vidfast", label: "VidUp", quality: "1080p" },
-    { key: "vidnest", label: "VidNest", quality: "1080p" },
-    { key: "vidify", label: "Vidify", quality: "1080p" },
-    { key: "vidzee", label: "VidZee", quality: "1080p" },
+async function getStreamUrls(id, type, s, e, lang, signal) {
+  const isTv = type === "tv", sub = lang === "english" ? "&sub=en" : "", k = await getEmbedKey(signal);
+  const defs = [
+    { key: "strigil", label: "Strigil", q: "4K HDR" }, { key: "videasy", label: "VidEasy", q: "4K" },
+    { key: "vidsuper", label: "VidSuper", q: "4K" }, { key: "vidcore", label: "VidCore", q: "1080p" },
+    { key: "vidrock", label: "AdRock", q: "1080p" }, { key: "vidsrc0", label: "VidSrc", q: "1080p" },
+    { key: "vidlink", label: "VidLink", q: "1080p" }, { key: "vidfast", label: "VidUp", q: "1080p" },
+    { key: "vidnest", label: "VidNest", q: "1080p" }, { key: "vidify", label: "Vidify", q: "1080p" },
+    { key: "vidzee", label: "VidZee", q: "1080p" },
   ];
-
-  const resolvedUrls = [];
-  for (const player of players) {
-    let streamUrl = "";
+  const out = [];
+  for (const p of defs) {
+    let u = "";
     if (!isTv) {
-      switch (player.key) {
-        case "strigil":
-          streamUrl = `https://strigil.cc/embed/movie/${id}?embedKey=${embedKey}&autoPlay=true&theme=16A085${subParam}`;
-          break;
-        case "vidfast":
-          streamUrl = `https://vidup.to/movie/${id}?autoPlay=true&theme=16A085${subParam}`;
-          break;
-        case "vidsuper":
-          streamUrl = `https://vidsuper.net/movie/${id}?overlay=true&color=16A085`;
-          break;
-        case "videasy":
-          streamUrl = `https://player.videasy.net/movie/${id}?overlay=true&color=16A085`;
-          break;
-        case "vidcore":
-          streamUrl = `https://vidcore.net/movie/${id}?autoPlay=true${subParam}`;
-          break;
-        case "vidsrc0":
-          streamUrl = `https://vidsrc.mov/embed/movie/${id}`;
-          break;
-        case "vidrock":
-          streamUrl = `https://vidrock.net/movie/${id}`;
-          break;
-        case "vidnest":
-          streamUrl = `https://vidnest.fun/movie/${id}`;
-          break;
-        case "vidlink":
-          streamUrl = `https://vidlink.pro/movie/${id}`;
-          break;
-        case "vidify":
-          streamUrl = `https://player.vidify.top/embed/movie/${id}`;
-          break;
-        case "vidzee":
-          streamUrl = `https://player.vidzee.wtf/embed/movie/${id}`;
-          break;
-      }
-    } else {
-      if (seasonNum == null || episodeNum == null) continue;
-      const s = seasonNum;
-      const ep = episodeNum;
-      switch (player.key) {
-        case "strigil":
-          streamUrl = `https://strigil.cc/embed/tv/${id}/${s}/${ep}?embedKey=${embedKey}&autoPlay=true&theme=16A085${subParam}`;
-          break;
-        case "vidfast":
-          streamUrl = `https://vidup.to/tv/${id}/${s}/${ep}?autoPlay=true&theme=16A085&nextButton=true&autoNext=true${subParam}`;
-          break;
-        case "vidsuper":
-          streamUrl = `https://vidsuper.net/tv/${id}/${s}/${ep}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&skip_intro=true&color=16A085`;
-          break;
-        case "videasy":
-          streamUrl = `https://player.videasy.net/tv/${id}/${s}/${ep}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&color=16A085`;
-          break;
-        case "vidcore":
-          streamUrl = `https://vidcore.net/tv/${id}/${s}/${ep}?autoPlay=true${subParam}`;
-          break;
-        case "vidsrc0":
-          streamUrl = `https://vidsrc.mov/embed/tv/${id}/${s}/${ep}`;
-          break;
-        case "vidrock":
-          streamUrl = `https://vidrock.net/tv/${id}/${s}/${ep}`;
-          break;
-        case "vidnest":
-          streamUrl = `https://vidnest.fun/tv/${id}/${s}/${ep}`;
-          break;
-        case "vidlink":
-          streamUrl = `https://vidlink.pro/tv/${id}/${s}/${ep}`;
-          break;
-        case "vidify":
-          streamUrl = `https://player.vidify.top/embed/tv/${id}/${s}/${ep}`;
-          break;
-        case "vidzee":
-          streamUrl = `https://player.vidzee.wtf/embed/tv/${id}/${s}/${ep}`;
-          break;
-      }
+      u = {
+        strigil: `https://strigil.cc/embed/movie/${id}?embedKey=${k}&autoPlay=true&theme=16A085${sub}`,
+        vidfast: `https://vidup.to/movie/${id}?autoPlay=true&theme=16A085${sub}`,
+        vidsuper: `https://vidsuper.net/movie/${id}?overlay=true&color=16A085`,
+        videasy: `https://player.videasy.net/movie/${id}?overlay=true&color=16A085`,
+        vidcore: `https://vidcore.net/movie/${id}?autoPlay=true${sub}`,
+        vidsrc0: `https://vidsrc.mov/embed/movie/${id}`, vidrock: `https://vidrock.net/movie/${id}`,
+        vidnest: `https://vidnest.fun/movie/${id}`, vidlink: `https://vidlink.pro/movie/${id}`,
+        vidify: `https://player.vidify.top/embed/movie/${id}`, vidzee: `https://player.vidzee.wtf/embed/movie/${id}`,
+      }[p.key] || "";
+    } else if (s != null && e != null) {
+      u = {
+        strigil: `https://strigil.cc/embed/tv/${id}/${s}/${e}?embedKey=${k}&autoPlay=true&theme=16A085${sub}`,
+        vidfast: `https://vidup.to/tv/${id}/${s}/${e}?autoPlay=true&theme=16A085&nextButton=true&autoNext=true${sub}`,
+        vidsuper: `https://vidsuper.net/tv/${id}/${s}/${e}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&skip_intro=true&color=16A085`,
+        videasy: `https://player.videasy.net/tv/${id}/${s}/${e}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&color=16A085`,
+        vidcore: `https://vidcore.net/tv/${id}/${s}/${e}?autoPlay=true${sub}`,
+        vidsrc0: `https://vidsrc.mov/embed/tv/${id}/${s}/${e}`, vidrock: `https://vidrock.net/tv/${id}/${s}/${e}`,
+        vidnest: `https://vidnest.fun/tv/${id}/${s}/${e}`, vidlink: `https://vidlink.pro/tv/${id}/${s}/${e}`,
+        vidify: `https://player.vidify.top/embed/tv/${id}/${s}/${e}`, vidzee: `https://player.vidzee.wtf/embed/tv/${id}/${s}/${e}`,
+      }[p.key] || "";
     }
-    if (streamUrl) {
-      resolvedUrls.push({
-        server: player.label,
-        quality: player.quality,
-        url: streamUrl,
-      });
-    }
+    if (u) out.push({ server: p.label, quality: p.q, url: u });
   }
-  return resolvedUrls;
+  return out;
 }
 
-async function getDirectVideasy(id, type, seasonNum, episodeNum, signal) {
-  const details = await apiGet(`/api/tmdb/${type}/${id}`, null, signal);
-  const title = details.title || details.name || "";
-  const releaseDate = details.release_date || details.first_air_date || "";
-  const year = releaseDate ? releaseDate.split("-")[0] : "";
-  const imdbId = details.imdb_id || "";
-  const encTitle = encodeURIComponent(encodeURIComponent(title));
-
-  const headers = {
-    Accept: "*/*",
-    Origin: "https://player.videasy.to",
-    Referer: "https://player.videasy.to/",
-    "User-Agent": UA,
-  };
-
-  const seedRes = await safeFetch(
-    `https://api.wingsdatabase.com/seed?mediaId=${id}`,
-    { allowedHosts: ["api.wingsdatabase.com"], headers, signal },
-    15000
-  );
-  if (!seedRes.ok) throw new Error(`wingsdatabase seed ${seedRes.status}`);
-  const seedData = await seedRes.json();
-  const seed = seedData.seed;
-
-  const server = "cdn";
-  const sourcesUrl =
-    type === "tv"
-      ? `https://api.wingsdatabase.com/${server}/sources-with-title?title=${encTitle}&mediaType=tv&year=${year}&episodeId=${episodeNum}&seasonId=${seasonNum}&tmdbId=${id}&imdbId=${imdbId}&enc=2&seed=${seed}`
-      : `https://api.wingsdatabase.com/${server}/sources-with-title?title=${encTitle}&mediaType=movie&year=${year}&tmdbId=${id}&imdbId=${imdbId}&enc=2&seed=${seed}`;
-
-  const sourcesRes = await safeFetch(
-    sourcesUrl,
-    { allowedHosts: ["api.wingsdatabase.com"], headers, signal },
-    15000
-  );
-  if (!sourcesRes.ok) throw new Error(`wingsdatabase sources ${sourcesRes.status}`);
-  const encData = await sourcesRes.json();
-
-  const decRes = await safeFetch(
-    "https://enc-dec.app/api/dec-videasy",
-    {
-      allowedHosts: ["enc-dec.app"],
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": UA },
-      body: JSON.stringify({ text: encData, id: String(id), seed }),
-      signal,
-    },
-    15000
-  );
-  if (!decRes.ok) throw new Error(`enc-dec dec-videasy ${decRes.status}`);
-  const decData = await decRes.json();
-  if (decData.status !== 200) throw new Error(decData.error || "Decryption failed");
-  return { status: "success", result: decData.result };
+async function getDirectVideasy(id, type, s, e, signal) {
+  const det = await apiGet(`/api/tmdb/${type}/${id}`, null, signal);
+  const title = det.title || det.name || "", year = (det.release_date || det.first_air_date || "").split("-")[0] || "", imdb = det.imdb_id || "";
+  const encT = encodeURIComponent(encodeURIComponent(title));
+  const hdr = { Accept: "*/*", Origin: "https://player.videasy.to", Referer: "https://player.videasy.to/", "User-Agent": UA };
+  const sRes = await safeFetch(`https://api.wingsdatabase.com/seed?mediaId=${id}`, { allowedHosts: ["api.wingsdatabase.com"], headers: hdr, signal }, 15000);
+  if (!sRes.ok) throw new Error(`seed ${sRes.status}`);
+  const seed = (await sRes.json()).seed;
+  const sUrl = type === "tv"
+    ? `https://api.wingsdatabase.com/cdn/sources-with-title?title=${encT}&mediaType=tv&year=${year}&episodeId=${e}&seasonId=${s}&tmdbId=${id}&imdbId=${imdb}&enc=2&seed=${seed}`
+    : `https://api.wingsdatabase.com/cdn/sources-with-title?title=${encT}&mediaType=movie&year=${year}&tmdbId=${id}&imdbId=${imdb}&enc=2&seed=${seed}`;
+  const src = await safeFetch(sUrl, { allowedHosts: ["api.wingsdatabase.com"], headers: hdr, signal }, 15000);
+  if (!src.ok) throw new Error(`sources ${src.status}`);
+  const enc = await src.json();
+  const dec = await safeFetch("https://enc-dec.app/api/dec-videasy", { allowedHosts: ["enc-dec.app"], method: "POST", headers: { "Content-Type": "application/json", "User-Agent": UA }, body: JSON.stringify({ text: enc, id: String(id), seed }), signal }, 15000);
+  if (!dec.ok) throw new Error(`dec ${dec.status}`);
+  const j = await dec.json();
+  if (j.status !== 200) throw new Error(j.error || "Decrypt failed");
+  return { player: "videasy", status: "success", result: j.result };
 }
 
-async function resolvePagePlayer(cfg, id, type, seasonNum, episodeNum, signal) {
-  const isTv = type === "tv";
-  const baseUrl = isTv
-    ? `https://${cfg.domain}/tv/${id}/${seasonNum}/${episodeNum}/`
-    : `https://${cfg.domain}/movie/${id}/`;
-
-  const pageRes = await safeFetch(
-    baseUrl,
-    { allowedHosts: playerAllowedHosts(), headers: { "User-Agent": UA }, signal },
-    15000
-  );
-  if (!pageRes.ok) throw new Error(`Player page ${cfg.domain} ${pageRes.status}`);
-  const html = await pageRes.text();
-  const match = html.match(/\\"en\\":\\"(.*?)\\"/) || html.match(/"en":"(.*?)"/);
-  if (!match) throw new Error(`Encrypted content tidak ditemukan di ${cfg.domain}`);
-  const text = match[1];
-
-  const partsRes = await safeFetch(
-    `https://enc-dec.app/api/enc-${cfg.key}?text=${encodeURIComponent(text)}`,
-    { allowedHosts: ["enc-dec.app"], headers: { "User-Agent": UA }, signal },
-    15000
-  );
-  if (!partsRes.ok) throw new Error(`enc-dec enc-${cfg.key} ${partsRes.status}`);
-  const partsData = await partsRes.json();
-  if (partsData.status !== 200) throw new Error(partsData.error || "Encryption failed");
-  const { servers, stream, token } = partsData.result;
-
-  const hdr = {
-    "User-Agent": UA,
-    Referer: `https://${cfg.domain}/`,
-    "X-Requested-With": "XMLHttpRequest",
-    "X-CSRF-Token": token,
-    "Content-Type": "application/json",
-  };
-
+async function resolvePage(cfg, id, type, s, e, signal) {
+  const base = type === "tv" ? `https://${cfg.domain}/tv/${id}/${s}/${e}/` : `https://${cfg.domain}/movie/${id}/`;
+  const pg = await safeFetch(base, { allowedHosts: playerAllowedHosts(), headers: { "User-Agent": UA }, signal }, 15000);
+  if (!pg.ok) throw new Error(`page ${pg.status}`);
+  const html = await pg.text();
+  const m = html.match(/\\"en\\":\\"(.*?)\\"/) || html.match(/"en":"(.*?)"/);
+  if (!m) throw new Error(`enc content tidak ada di ${cfg.domain}`);
+  const parts = await safeFetch(`https://enc-dec.app/api/enc-${cfg.key}?text=${encodeURIComponent(m[1])}`, { allowedHosts: ["enc-dec.app"], headers: { "User-Agent": UA }, signal }, 15000);
+  if (!parts.ok) throw new Error(`enc ${parts.status}`);
+  const pd = await parts.json();
+  if (pd.status !== 200) throw new Error(pd.error || "enc fail");
+  const { servers, stream, token } = pd.result;
+  const hdr = { "User-Agent": UA, Referer: `https://${cfg.domain}/`, "X-Requested-With": "XMLHttpRequest", "X-CSRF-Token": token, "Content-Type": "application/json" };
   assertDynamicPlayerUrl(servers);
-  const serversEncRes = await safeFetch(
-    servers,
-    {
-      allowedHosts: playerAllowedHosts(),
-      method: "POST",
-      headers: hdr,
-      body: "{}",
-      signal,
-    },
-    15000
-  );
-  if (!serversEncRes.ok) throw new Error(`servers fetch ${serversEncRes.status}`);
-  const serversEncText = await serversEncRes.text();
-
-  const decServersRes = await safeFetch(
-    `https://enc-dec.app/api/dec-${cfg.key}`,
-    {
-      allowedHosts: ["enc-dec.app"],
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": UA },
-      body: JSON.stringify({ text: serversEncText }),
-      signal,
-    },
-    15000
-  );
-  if (!decServersRes.ok) throw new Error(`enc-dec dec-servers ${decServersRes.status}`);
-  const decServers = await decServersRes.json();
-  if (decServers.status !== 200) throw new Error("Failed to decrypt servers");
-
-  const serverData = decServers.result[0].data;
-  const streamEncUrl = `${stream}/${serverData}`;
-  assertDynamicPlayerUrl(streamEncUrl);
-  const streamEncRes = await safeFetch(
-    streamEncUrl,
-    {
-      allowedHosts: playerAllowedHosts(),
-      method: "POST",
-      headers: hdr,
-      body: "{}",
-      signal,
-    },
-    15000
-  );
-  if (!streamEncRes.ok) throw new Error(`stream fetch ${streamEncRes.status}`);
-  const streamEncText = await streamEncRes.text();
-
-  const decStreamRes = await safeFetch(
-    `https://enc-dec.app/api/dec-${cfg.key}`,
-    {
-      allowedHosts: ["enc-dec.app"],
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": UA },
-      body: JSON.stringify({ text: streamEncText }),
-      signal,
-    },
-    15000
-  );
-  if (!decStreamRes.ok) throw new Error(`enc-dec dec-stream ${decStreamRes.status}`);
-  const decStream = await decStreamRes.json();
-  if (decStream.status !== 200) throw new Error("Failed to decrypt stream");
-  return { status: "success", result: decStream.result };
+  const sE = await safeFetch(servers, { allowedHosts: playerAllowedHosts(), method: "POST", headers: hdr, body: "{}", signal }, 15000);
+  if (!sE.ok) throw new Error(`srv ${sE.status}`);
+  const sD = await safeFetch(`https://enc-dec.app/api/dec-${cfg.key}`, { allowedHosts: ["enc-dec.app"], method: "POST", headers: { "Content-Type": "application/json", "User-Agent": UA }, body: JSON.stringify({ text: await sE.text() }), signal }, 15000);
+  if (!sD.ok) throw new Error(`dec-srv ${sD.status}`);
+  const sJ = await sD.json();
+  if (sJ.status !== 200) throw new Error("dec srv fail");
+  const stUrl = `${stream}/${sJ.result[0].data}`;
+  assertDynamicPlayerUrl(stUrl);
+  const stE = await safeFetch(stUrl, { allowedHosts: playerAllowedHosts(), method: "POST", headers: hdr, body: "{}", signal }, 15000);
+  if (!stE.ok) throw new Error(`st ${stE.status}`);
+  const stD = await safeFetch(`https://enc-dec.app/api/dec-${cfg.key}`, { allowedHosts: ["enc-dec.app"], method: "POST", headers: { "Content-Type": "application/json", "User-Agent": UA }, body: JSON.stringify({ text: await stE.text() }), signal }, 15000);
+  if (!stD.ok) throw new Error(`dec-st ${stD.status}`);
+  const stJ = await stD.json();
+  if (stJ.status !== 200) throw new Error("dec st fail");
+  return { player: cfg.key, status: "success", result: stJ.result };
 }
 
-async function getDirect(id, type, seasonNum, episodeNum, player, signal) {
-  const pKey = String(player || "videasy").toLowerCase();
-  const cleanType = type === "tv" ? "tv" : "movie";
-
-  if (pKey === "videasy") {
-    return await getDirectVideasy(id, cleanType, seasonNum, episodeNum, signal);
-  }
-
-  const configs = {
-    vidcore: { key: "vidcore", domain: "vidcore.net" },
-    vidup: { key: "vidup", domain: "vidup.to" },
-    vidfast: { key: "vidfast", domain: "vidfast.vc" },
-  };
-  const cfg = configs[pKey];
-  if (!cfg) {
-    throw new Error(
-      `Player tidak didukung: ${player}. Pilih videasy, vidcore, vidup, atau vidfast.`
-    );
-  }
-  if (cleanType === "tv" && (seasonNum == null || episodeNum == null)) {
-    throw new Error("season dan episode wajib untuk TV pada action=direct");
-  }
-  return await resolvePagePlayer(cfg, id, cleanType, seasonNum, episodeNum, signal);
+async function getDirect(id, type, s, e, player, signal) {
+  const p = String(player || "videasy").toLowerCase(), t = type === "tv" ? "tv" : "movie";
+  if (t === "tv" && (s == null || e == null)) throw new Error("season dan episode wajib untuk TV");
+  if (p === "videasy") return await getDirectVideasy(id, t, s, e, signal);
+  const map = { vidcore: { key: "vidcore", domain: "vidcore.net" }, vidup: { key: "vidup", domain: "vidup.to" }, vidfast: { key: "vidfast", domain: "vidfast.vc" } };
+  if (!map[p]) throw new Error(`Player tidak didukung: ${player}. Pilih videasy, vidcore, vidup, vidfast.`);
+  return await resolvePage(map[p], id, t, s, e, signal);
 }
 
+/* ===== PLUGIN: 1 file → 6 sub-route ===== */
 export default {
-  name: "7reels Film",
+  name: "7reels",
   category: "film",
-  description:
-    "Scraper 7reels.cc — homepage, search, detail TMDB, episode, kumpulan URL player, dan direct stream (.m3u8) untuk videasy/vidcore/vidup/vidfast.",
   method: ["GET", "POST"],
   timeout: 120_000,
-  params: {
-    action: {
-      type: "string",
-      required: true,
-      enum: ["homepage", "search", "details", "episodes", "streams", "direct"],
-      description:
-        "Aksi: homepage | search | details | episodes | streams | direct",
+  routes: {
+    homepage: {
+      description: "Homepage featured & top reels 7reels.cc.",
+      params: {},
+      execute: async (_req, _res, { signal }) => getHomepage(signal),
     },
-    query: {
-      type: "string",
-      maxLength: 200,
-      description: "Kata kunci (wajib untuk action=search).",
+    search: {
+      description: "Cari film/TV di 7reels.cc.",
+      timeout: 60_000,
+      params: {
+        query: { type: "string", required: true, maxLength: 200, description: "Kata kunci" },
+        page: { type: "number", minimum: 1, maximum: 500, description: "Halaman (default 1)" },
+      },
+      execute: async (_req, _res, { input, signal }) => doSearch(input.query, input.page || 1, signal),
     },
-    page: {
-      type: "number",
-      minimum: 1,
-      maximum: 500,
-      description: "Halaman hasil (default 1, hanya action=search).",
+    details: {
+      description: "Detail film/TV dari TMDB via 7reels.",
+      timeout: 60_000,
+      params: {
+        id: { type: "number", required: true, minimum: 1, description: "TMDB ID" },
+        type: { type: "string", enum: ["movie", "tv"], description: "Tipe (default movie)" },
+      },
+      execute: async (_req, _res, { input, signal }) => getDetails(input.id, input.type || "movie", signal),
     },
-    id: {
-      type: "number",
-      minimum: 1,
-      description: "TMDB ID (wajib untuk details/episodes/streams/direct).",
+    episodes: {
+      description: "Daftar episode satu season TV.",
+      timeout: 60_000,
+      params: {
+        id: { type: "number", required: true, minimum: 1, description: "TMDB TV ID" },
+        season: { type: "number", required: true, minimum: 1, maximum: 100, description: "Nomor season" },
+      },
+      execute: async (_req, _res, { input, signal }) => getEpisodes(input.id, input.season, signal),
     },
-    type: {
-      type: "string",
-      enum: ["movie", "tv"],
-      description: "Tipe media (default movie).",
+    streams: {
+      description: "Daftar URL embed semua player 7reels.",
+      timeout: 60_000,
+      params: {
+        id: { type: "number", required: true, minimum: 1, description: "TMDB ID" },
+        type: { type: "string", enum: ["movie", "tv"], description: "Tipe (default movie)" },
+        season: { type: "number", minimum: 1, maximum: 100, description: "Season (wajib TV)" },
+        episode: { type: "number", minimum: 1, maximum: 2000, description: "Episode (wajib TV)" },
+        language: { type: "string", enum: ["english", "other"], description: "Subtitle (default english)" },
+      },
+      execute: async (_req, _res, { input, signal }) => {
+        const t = input.type || "movie";
+        if (t === "tv" && (input.season == null || input.episode == null)) throw new Error("season dan episode wajib untuk TV");
+        return getStreamUrls(input.id, t, input.season, input.episode, input.language || "english", signal);
+      },
     },
-    season: {
-      type: "number",
-      minimum: 1,
-      maximum: 100,
-      description: "Nomor season (wajib untuk TV: episodes/streams/direct).",
+    direct: {
+      description: "Resolusi direct .m3u8 (videasy/vidcore/vidup/vidfast).",
+      timeout: 120_000,
+      params: {
+        id: { type: "number", required: true, minimum: 1, description: "TMDB ID" },
+        type: { type: "string", enum: ["movie", "tv"], description: "Tipe (default movie)" },
+        season: { type: "number", minimum: 1, maximum: 100, description: "Season (wajib TV)" },
+        episode: { type: "number", minimum: 1, maximum: 2000, description: "Episode (wajib TV)" },
+        player: { type: "string", enum: ["videasy", "vidcore", "vidup", "vidfast"], description: "Player (default videasy)" },
+      },
+      execute: async (_req, _res, { input, signal }) => {
+        const t = input.type || "movie";
+        if (t === "tv" && (input.season == null || input.episode == null)) throw new Error("season dan episode wajib untuk TV");
+        return getDirect(input.id, t, input.season, input.episode, input.player || "videasy", signal);
+      },
     },
-    episode: {
-      type: "number",
-      minimum: 1,
-      maximum: 2000,
-      description: "Nomor episode (wajib untuk TV: streams/direct).",
-    },
-    language: {
-      type: "string",
-      enum: ["english", "other"],
-      description: "Preferensi subtitle (default english), hanya streams.",
-    },
-    player: {
-      type: "string",
-      enum: ["videasy", "vidcore", "vidup", "vidfast"],
-      description: "Player untuk action=direct (default videasy).",
-    },
-  },
-  execute: async (_req, _res, { input, signal }) => {
-    switch (input.action) {
-      case "homepage":
-        return await getHomepage(signal);
-
-      case "search":
-        if (!input.query) throw new Error("query wajib untuk action=search");
-        return await doSearch(input.query, input.page || 1, signal);
-
-      case "details":
-        if (input.id == null) throw new Error("id wajib untuk action=details");
-        return await getDetails(input.id, input.type || "movie", signal);
-
-      case "episodes":
-        if (input.id == null) throw new Error("id wajib untuk action=episodes");
-        if (input.season == null) throw new Error("season wajib untuk action=episodes");
-        return await getEpisodes(input.id, input.season, signal);
-
-      case "streams":
-        if (input.id == null) throw new Error("id wajib untuk action=streams");
-        return await getStreamUrls(
-          input.id,
-          input.type || "movie",
-          input.season,
-          input.episode,
-          input.language || "english",
-          signal
-        );
-
-      case "direct":
-        if (input.id == null) throw new Error("id wajib untuk action=direct");
-        return await getDirect(
-          input.id,
-          input.type || "movie",
-          input.season,
-          input.episode,
-          input.player || "videasy",
-          signal
-        );
-
-      default:
-        throw new Error(`action tidak dikenal: ${input.action}`);
-    }
   },
 };
