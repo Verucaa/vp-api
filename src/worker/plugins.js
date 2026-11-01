@@ -10,10 +10,6 @@ import tempmail from "../plugins/tools/tempmail.js";
 import film7reels from "../plugins/film/7reels.js";
 import filmHura from "../plugins/film/hura.js";
 
-// DAN HAPUS entri di activeWorkerPlugins:
-// "/film/7reels-stream": film7reelsStream,
-// "/film/hura-stream": filmHuraStream,
-
 export const activeWorkerPlugins = [
   { endpoint: "/downloader/capcut", handler: capcut },
   { endpoint: "/downloader/instagram", handler: instagram },
@@ -23,7 +19,9 @@ export const activeWorkerPlugins = [
   { endpoint: "/info/ping", handler: ping },
   { endpoint: "/search/pinterest", handler: pinterest },
   { endpoint: "/search/soundcloud", handler: soundcloud },
-  { endpoint: "/tools/tempmail", handler: tempmail }
+  { endpoint: "/tools/tempmail", handler: tempmail },
+  { endpoint: "/film/7reels", handler: film7reels },
+  { endpoint: "/film/hura", handler: filmHura }
 ];
 
 export const disabledWorkerPlugins = [
