@@ -285,6 +285,45 @@ const parsePluginPath = (filePath, baseDir) => {
   return { category, name, routePath: `/${category}/${name}` };
 };
 
+/**
+ * Register a plugin that declares `routes: { ... }` on its default export.
+ * Each sub-route becomes an independent entry in the `plugins` Map so the
+ * existing app-core / registry / OpenAPI code sees N routes without changes.
+ */
+const registerMultiRoutePlugin = (parsed, handler) => {
+  const baseMethods = Array.isArray(handler.method) ? handler.method : [handler.method || "GET"];
+  const baseTimeout = Math.min(Math.max(Number(handler.timeout) || 45_000, 1000), 300_000);
+  const baseCache = typeof handler.cache === "number" && handler.cache > 0 ? handler.cache : null;
+  const registered = [];
+
+  for (const [sub, def] of Object.entries(handler.routes)) {
+    if (!/^[a-z0-9_-]+$/.test(sub)) {
+      console.error(`[Plugin Route Skipped] ${parsed.routePath}/${sub}: nama sub-route harus [a-z0-9_-]`);
+      continue;
+    }
+    if (!def || typeof def.execute !== "function") {
+      console.error(`[Plugin Route Skipped] ${parsed.routePath}/${sub}: execute bukan function`);
+      continue;
+    }
+    const defMethods = Array.isArray(def.method) ? def.method : [def.method || baseMethods[0]];
+    const routePath = `${parsed.routePath}/${sub}`;
+    const plugin = {
+      name: def.name || `${handler.name || parsed.name} ${sub}`,
+      category: handler.category || parsed.category,
+      path: routePath,
+      method: [...new Set(defMethods.map((m) => String(m).toUpperCase()))],
+      description: def.description || handler.description || "",
+      params: def.params || {},
+      cache: typeof def.cache === "number" && def.cache > 0 ? def.cache : baseCache,
+      timeout: Math.min(Math.max(Number(def.timeout) || baseTimeout, 1000), 300_000),
+      execute: def.execute,
+    };
+    plugins.set(routePath, plugin);
+    registered.push(plugin);
+  }
+  return registered[0] || null;
+};
+
 export const loadPlugin = async (filePath) => {
   if (!filePath.endsWith(".js") && !filePath.endsWith(".mjs")) return null;
   const baseDir = getPluginsDir();
@@ -294,7 +333,15 @@ export const loadPlugin = async (filePath) => {
     const fullPath = path.resolve(filePath);
     const module = await import(`${pathToFileURL(fullPath).href}?v=${Date.now()}`);
     const handler = module.default || module;
-    if (!handler || typeof handler.execute !== "function") return null;
+    if (!handler) return null;
+
+    // Multi-route: plugin dengan `routes: { ... }` tanpa top-level `execute`
+    if (handler.routes && typeof handler.routes === "object" && typeof handler.execute !== "function") {
+      return registerMultiRoutePlugin(parsed, handler);
+    }
+
+    // Single route (perilaku lama, tidak berubah)
+    if (typeof handler.execute !== "function") return null;
     const methods = Array.isArray(handler.method) ? handler.method : [handler.method || "GET"];
     const plugin = {
       name: handler.name || parsed.name,
@@ -317,7 +364,13 @@ export const loadPlugin = async (filePath) => {
 
 export const unloadPlugin = (filePath) => {
   const parsed = parsePluginPath(filePath, getPluginsDir());
-  if (parsed) plugins.delete(parsed.routePath);
+  if (!parsed) return;
+  plugins.delete(parsed.routePath);
+  // Hapus semua sub-route yang di-expand dari file ini
+  const prefix = `${parsed.routePath}/`;
+  for (const key of [...plugins.keys()]) {
+    if (key.startsWith(prefix)) plugins.delete(key);
+  }
 };
 
 const getFiles = (directory) => {
@@ -342,6 +395,8 @@ export const resolveSingleRouteOnDemand = async (category, pluginName) => {
   const baseDir = getPluginsDir();
   const normalizedPlugin = pluginName.split("/").filter(Boolean);
   if (normalizedPlugin.length !== pluginName.split("/").length) return null;
+
+  // 1. Coba file persis (single-route atau sub-route file yang benar-benar ada)
   const candidates = [
     path.join(baseDir, category, ...normalizedPlugin) + ".js",
     path.join(baseDir, category, ...normalizedPlugin) + ".mjs",
@@ -351,6 +406,26 @@ export const resolveSingleRouteOnDemand = async (category, pluginName) => {
     const relative = path.relative(baseDir, filePath);
     if (relative.startsWith("../") || path.isAbsolute(relative)) continue;
     try { if (fs.existsSync(filePath)) return await loadPlugin(filePath); } catch {}
+  }
+
+  // 2. Fallback: multi-route plugin di parent (mis. /film/7reels/homepage → film/7reels.js)
+  if (normalizedPlugin.length > 1) {
+    const parentName = normalizedPlugin[0];
+    const parentCandidates = [
+      path.join(baseDir, category, parentName) + ".js",
+      path.join(baseDir, category, parentName) + ".mjs",
+    ];
+    for (const filePath of parentCandidates) {
+      const relative = path.relative(baseDir, filePath);
+      if (relative.startsWith("../") || path.isAbsolute(relative)) continue;
+      try {
+        if (fs.existsSync(filePath)) {
+          await loadPlugin(filePath); // expand semua sub-route ke `plugins`
+          const requested = plugins.get(`/${category}/${pluginName}`);
+          if (requested) return requested;
+        }
+      } catch {}
+    }
   }
   return null;
 };
