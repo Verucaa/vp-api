@@ -1,660 +1,276 @@
 import { safeFetch } from "../../plugin-runtime.js";
 
-const HURA_DOMAIN = "https://hurawatch.sx";
-const FALLBACK_API_KEY = "9e7096a7575623aa30c66e9cc987e411";
-const TMDB_BASE_URL = "https://api.themoviedb.org/3";
-const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+/* ===== CORE ===== */
+const HURA = "https://hurawatch.sx";
+const FALLBACK_KEY = "9e7096a7575623aa30c66e9cc987e411";
+const TMDB = "https://api.themoviedb.org/3";
+const IMG = "https://image.tmdb.org/t/p/w500";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
-const GENRE_MAP = {
-  28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
-  99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History",
-  27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Sci-Fi",
-  10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western",
-  10759: "Action & Adventure", 10762: "Kids", 10763: "News", 10764: "Reality",
-  10765: "Sci-Fi & Fantasy", 10766: "Soap", 10767: "Talk", 10768: "War & Politics",
+const GENRE = { 28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance", 878: "Sci-Fi", 10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western", 10759: "Action & Adventure", 10762: "Kids", 10763: "News", 10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap", 10767: "Talk", 10768: "War & Politics" };
+
+const SRV = {
+  Server_1_VidCore: { movie: "https://vidcore.net/movie/", tv: "https://vidcore.net/tv/", suffix: "?autoPlay=true", domain: "vidcore.net", direct: true },
+  Server_2_VidGod: { movie: "https://vidgod.net/movie/", tv: "https://vidgod.net/tv/", suffix: "", domain: "vidgod.net", direct: false },
+  Server_3_VidNest: { movie: "https://vidnest.fun/movie/", tv: "https://vidnest.fun/tv/", suffix: "", domain: "vidnest.fun", direct: false },
+  Server_4_VidFast: { movie: "https://vidfast.pro/movie/", tv: "https://vidfast.pro/tv/", suffix: "?autoPlay=true", domain: "vidfast.pro", direct: true },
+  Server_5_VidSrcEmbed: { movie: "https://vidsrc-embed.ru/embed/movie/", tv: "https://vidsrc-embed.ru/embed/tv/", suffix: "", domain: "vidsrc-embed.ru", direct: false },
+  Server_6_VidEasy: { movie: "https://player.videasy.net/movie/", tv: "https://player.videasy.net/tv/", suffix: "", domain: "player.videasy.net", direct: true },
 };
 
-const SERVER_PATTERNS = {
-  Server_1_VidCore: {
-    movie: "https://vidcore.net/movie/",
-    tv: "https://vidcore.net/tv/",
-    suffix: "?autoPlay=true",
-    domain: "vidcore.net",
-    direct: true,
-  },
-  Server_2_VidGod: {
-    movie: "https://vidgod.net/movie/",
-    tv: "https://vidgod.net/tv/",
-    suffix: "",
-    domain: "vidgod.net",
-    direct: false,
-  },
-  Server_3_VidNest: {
-    movie: "https://vidnest.fun/movie/",
-    tv: "https://vidnest.fun/tv/",
-    suffix: "",
-    domain: "vidnest.fun",
-    direct: false,
-  },
-  Server_4_VidFast: {
-    movie: "https://vidfast.pro/movie/",
-    tv: "https://vidfast.pro/tv/",
-    suffix: "?autoPlay=true",
-    domain: "vidfast.pro",
-    direct: true,
-  },
-  Server_5_VidSrcEmbed: {
-    movie: "https://vidsrc-embed.ru/embed/movie/",
-    tv: "https://vidsrc-embed.ru/embed/tv/",
-    suffix: "",
-    domain: "vidsrc-embed.ru",
-    direct: false,
-  },
-  Server_6_VidEasy: {
-    movie: "https://player.videasy.net/movie/",
-    tv: "https://player.videasy.net/tv/",
-    suffix: "",
-    domain: "player.videasy.net",
-    direct: true,
-  },
-};
-
-// Domain player yang boleh di-resolve via enc-dec (dinamis). Harus cocok
-// dengan domain pada SERVER_PATTERNS yang `direct: true`.
 const PLAYER_DOMAINS = ["vidcore.net", "vidfast.pro", "vidfast.vc"];
-
 function playerAllowedHosts() {
-  const hosts = ["enc-dec.app"];
-  for (const d of PLAYER_DOMAINS) {
-    hosts.push(d, `www.${d}`, `cdn.${d}`, `api.${d}`);
-  }
-  return hosts;
+  const h = ["enc-dec.app"];
+  for (const d of PLAYER_DOMAINS) h.push(d, `www.${d}`, `cdn.${d}`, `api.${d}`);
+  return h;
+}
+function assertDyn(u) {
+  const h = new URL(u).hostname.toLowerCase();
+  if (!PLAYER_DOMAINS.some((d) => h === d || h.endsWith("." + d))) throw new Error(`Host tidak diizinkan: ${h}`);
+  return u;
 }
 
-function assertDynamicPlayerUrl(urlStr) {
-  const host = new URL(urlStr).hostname.toLowerCase();
-  const ok = PLAYER_DOMAINS.some((d) => host === d || host.endsWith("." + d));
-  if (!ok) throw new Error(`Provider host tidak diizinkan: ${host}`);
-  return urlStr;
-}
-
-let cachedApiKey = null;
-
+let cachedKey = null;
 async function getApiKey(signal) {
-  if (cachedApiKey) return cachedApiKey;
+  if (cachedKey) return cachedKey;
   try {
-    const res = await safeFetch(
-      `${HURA_DOMAIN}/config.js`,
-      { allowedHosts: ["hurawatch.sx"], headers: { "User-Agent": UA }, signal },
-      5000
-    );
-    if (!res.ok) throw new Error(`config.js ${res.status}`);
-    const text = await res.text();
-    const m = text.match(/TMDB_API_KEY\s*:\s*['"]([a-f0-9]+)['"]/i);
-    if (m && m[1]) {
-      cachedApiKey = m[1];
-      return cachedApiKey;
+    const r = await safeFetch(`${HURA}/config.js`, { allowedHosts: ["hurawatch.sx"], headers: { "User-Agent": UA }, signal }, 5000);
+    if (!r.ok) throw 0;
+    const m = (await r.text()).match(/TMDB_API_KEY\s*:\s*['"]([a-f0-9]+)['"]/i);
+    if (m && m[1]) { cachedKey = m[1]; return cachedKey; }
+  } catch {}
+  cachedKey = FALLBACK_KEY;
+  return cachedKey;
+}
+
+async function tmdb(path, params, key, signal) {
+  const u = new URL(`${TMDB}/${path}`);
+  u.searchParams.set("api_key", key);
+  if (params) for (const [k, v] of Object.entries(params)) if (v != null) u.searchParams.set(k, String(v));
+  const r = await safeFetch(u.href, { allowedHosts: ["api.themoviedb.org"], headers: { "User-Agent": UA, Accept: "application/json" }, signal }, 15000);
+  if (!r.ok) throw new Error(`TMDB ${path} ${r.status}`);
+  return await r.json();
+}
+
+function genStreams(id, type, s = 1, e = 1) {
+  const o = {};
+  for (const [k, p] of Object.entries(SRV)) o[k] = type === "movie" ? `${p.movie}${id}${p.suffix}` : `${p.tv}${id}/${s}/${e}${p.suffix}`;
+  return o;
+}
+
+function fmt(it, ov = null) {
+  const t = ov || it.media_type || (it.title ? "movie" : "tv");
+  const title = it.title || it.name || "Untitled";
+  const year = (it.release_date || it.first_air_date || "").split("-")[0] || "N/A";
+  return {
+    id: it.id, title, original_title: it.original_title || it.original_name || title, type: t, year,
+    rating: it.vote_average ? parseFloat(it.vote_average.toFixed(1)) : 0.0,
+    genres: (it.genre_ids || []).map((g) => GENRE[g] || g),
+    overview: it.overview || "",
+    poster_url: it.poster_path ? `${IMG}${it.poster_path}` : null,
+    backdrop_url: it.backdrop_path ? `${IMG.replace("w500", "original")}${it.backdrop_path}` : null,
+    streams: genStreams(it.id, t),
+  };
+}
+
+async function getHome(signal) {
+  const k = await getApiKey(signal);
+  const [tv, mv, tw, sw, tr, up] = await Promise.all([
+    tmdb("trending/tv/day", null, k, signal), tmdb("trending/movie/day", null, k, signal),
+    tmdb("trending/movie/week", null, k, signal), tmdb("trending/tv/week", null, k, signal),
+    tmdb("movie/top_rated", { page: 1 }, k, signal), tmdb("movie/upcoming", { page: 1 }, k, signal),
+  ]);
+  const banner = [...tv.results.slice(0, 3).map((i) => ({ ...i, media_type: "tv" })), ...mv.results.slice(0, 3).map((i) => ({ ...i, media_type: "movie" }))].map((i) => fmt(i));
+  return { hero_banner: banner, trending_movies: tw.results.slice(0, 20).map((i) => fmt(i, "movie")), trending_series: sw.results.slice(0, 20).map((i) => fmt(i, "tv")), all_time_best: tr.results.slice(0, 20).map((i) => fmt(i, "movie")), upcoming: up.results.slice(0, 20).map((i) => fmt(i, "movie")) };
+}
+
+async function getMovies(filter, page, signal) {
+  const ok = ["popular", "top_rated", "now_playing", "upcoming"];
+  if (!ok.includes(filter)) throw new Error(`Filter movies tidak valid. Pilih: ${ok.join(", ")}`);
+  const k = await getApiKey(signal), d = await tmdb(`movie/${filter}`, { page }, k, signal);
+  return { filter, page: d.page, total_pages: Math.min(d.total_pages, 500), total_results: d.total_results, results: d.results.map((i) => fmt(i, "movie")) };
+}
+
+async function getTV(filter, page, signal) {
+  const ok = ["popular", "top_rated", "on_the_air", "airing_today"];
+  let f = filter;
+  if (filter === "on_air" || filter === "on-air") f = "on_the_air";
+  if (filter === "airing_today" || filter === "airing-today") f = "airing_today";
+  if (!ok.includes(f)) throw new Error(`Filter TV tidak valid. Pilih: ${ok.join(", ")}`);
+  const k = await getApiKey(signal), d = await tmdb(`tv/${f}`, { page }, k, signal);
+  return { filter: f, page: d.page, total_pages: Math.min(d.total_pages, 500), total_results: d.total_results, results: d.results.map((i) => fmt(i, "tv")) };
+}
+
+async function getTopIMDb(type, page, signal) {
+  if (!["movie", "tv"].includes(type)) throw new Error(`type harus movie/tv`);
+  const k = await getApiKey(signal), d = await tmdb(`${type}/top_rated`, { page }, k, signal);
+  return { media_type: type, page: d.page, total_pages: Math.min(d.total_pages, 500), total_results: d.total_results, results: d.results.map((it, i) => { const f = fmt(it, type); f.imdb_rank = (page - 1) * 20 + i + 1; return f; }) };
+}
+
+async function doSearch(query, page, signal) {
+  const k = await getApiKey(signal), d = await tmdb("search/multi", { query, page }, k, signal);
+  return { query, page: d.page, total_pages: d.total_pages, total_results: d.total_results, results: d.results.filter((i) => i.media_type !== "person").map((i) => fmt(i)) };
+}
+
+async function getDetail(id, type, signal) {
+  const k = await getApiKey(signal);
+  if (type === "tv") {
+    const [dt, cr, sm] = await Promise.all([tmdb(`tv/${id}`, null, k, signal), tmdb(`tv/${id}/credits`, null, k, signal), tmdb(`tv/${id}/similar`, null, k, signal)]);
+    const seasons = [];
+    for (let s = 1; s <= (dt.number_of_seasons || 0); s++) {
+      try {
+        const sd = await tmdb(`tv/${id}/season/${s}`, null, k, signal);
+        seasons.push({ season_number: s, name: sd.name || `Season ${s}`, overview: sd.overview || "", air_date: sd.air_date || "N/A", poster_url: sd.poster_path ? `${IMG}${sd.poster_path}` : null, episodes: (sd.episodes || []).map((e) => ({ id: e.id, episode_number: e.episode_number, name: e.name, overview: e.overview || "", air_date: e.air_date || "N/A", rating: e.vote_average ? parseFloat(e.vote_average.toFixed(1)) : 0.0, still_path: e.still_path ? `${IMG}${e.still_path}` : null, streams: genStreams(id, "tv", s, e.episode_number) })) });
+      } catch {}
     }
-  } catch {
-    /* fallback */
+    const f = fmt(dt, "tv");
+    f.genres = (dt.genres || []).map((g) => g.name);
+    f.cast = (cr.cast || []).slice(0, 10).map((c) => ({ name: c.name, character: c.character, profile_url: c.profile_path ? `${IMG}${c.profile_path}` : null }));
+    f.creators = (dt.created_by || []).map((c) => c.name);
+    f.similar_shows = (sm.results || []).slice(0, 10).map((i) => fmt(i, "tv"));
+    f.number_of_seasons = dt.number_of_seasons || 0;
+    f.number_of_episodes = dt.number_of_episodes || 0;
+    f.status = dt.status || "";
+    f.seasons = seasons;
+    return f;
   }
-  cachedApiKey = FALLBACK_API_KEY;
-  return cachedApiKey;
+  const [dt, cr, sm] = await Promise.all([tmdb(`movie/${id}`, null, k, signal), tmdb(`movie/${id}/credits`, null, k, signal), tmdb(`movie/${id}/similar`, null, k, signal)]);
+  const f = fmt(dt, "movie");
+  f.genres = (dt.genres || []).map((g) => g.name);
+  f.cast = (cr.cast || []).slice(0, 10).map((c) => ({ name: c.name, character: c.character, profile_url: c.profile_path ? `${IMG}${c.profile_path}` : null }));
+  f.directors = (cr.crew || []).filter((c) => c.job === "Director").map((c) => c.name);
+  f.similar_movies = (sm.results || []).slice(0, 10).map((i) => fmt(i, "movie"));
+  f.tagline = dt.tagline || "";
+  f.status = dt.status || "";
+  f.budget = dt.budget || 0;
+  f.revenue = dt.revenue || 0;
+  f.runtime_minutes = dt.runtime || 0;
+  return f;
 }
 
-async function tmdbFetch(path, params, apiKey, signal) {
-  const url = new URL(`${TMDB_BASE_URL}/${path}`);
-  url.searchParams.set("api_key", apiKey);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
-    }
-  }
-  const res = await safeFetch(
-    url.href,
-    {
-      allowedHosts: ["api.themoviedb.org"],
-      headers: { "User-Agent": UA, Accept: "application/json" },
-      signal,
-    },
-    15000
-  );
-  if (!res.ok) throw new Error(`TMDB ${path} ${res.status}`);
-  return await res.json();
+function getStreams(id, type, s, e) {
+  const srv = [];
+  for (const [name, p] of Object.entries(SRV)) srv.push({ server: name, domain: p.domain, supportsDirect: p.direct, url: type === "movie" ? `${p.movie}${id}${p.suffix}` : `${p.tv}${id}/${s}/${e}${p.suffix}` });
+  return { id: String(id), type, season: type === "tv" ? s : null, episode: type === "tv" ? e : null, total: srv.length, servers: srv };
 }
 
-function generateStreams(id, type, season = 1, episode = 1) {
-  const streams = {};
-  for (const [server, p] of Object.entries(SERVER_PATTERNS)) {
-    streams[server] =
-      type === "movie"
-        ? `${p.movie}${id}${p.suffix}`
-        : `${p.tv}${id}/${season}/${episode}${p.suffix}`;
-  }
-  return streams;
+async function getDirectVideasy(id, type, s, e, signal) {
+  const k = await getApiKey(signal), det = await tmdb(`${type}/${id}`, null, k, signal);
+  const title = det.title || det.name || "", year = (det.release_date || det.first_air_date || "").split("-")[0] || "", imdb = det.imdb_id || "";
+  const encT = encodeURIComponent(encodeURIComponent(title));
+  const hdr = { Accept: "*/*", Origin: "https://player.videasy.to", Referer: "https://player.videasy.to/", "User-Agent": UA };
+  const sr = await safeFetch(`https://api.wingsdatabase.com/seed?mediaId=${id}`, { allowedHosts: ["api.wingsdatabase.com"], headers: hdr, signal }, 15000);
+  if (!sr.ok) throw new Error(`seed ${sr.status}`);
+  const seed = (await sr.json()).seed;
+  const sUrl = type === "tv"
+    ? `https://api.wingsdatabase.com/cdn/sources-with-title?title=${encT}&mediaType=tv&year=${year}&episodeId=${e}&seasonId=${s}&tmdbId=${id}&imdbId=${imdb}&enc=2&seed=${seed}`
+    : `https://api.wingsdatabase.com/cdn/sources-with-title?title=${encT}&mediaType=movie&year=${year}&tmdbId=${id}&imdbId=${imdb}&enc=2&seed=${seed}`;
+  const src = await safeFetch(sUrl, { allowedHosts: ["api.wingsdatabase.com"], headers: hdr, signal }, 15000);
+  if (!src.ok) throw new Error(`src ${src.status}`);
+  const enc = await src.json();
+  const dec = await safeFetch("https://enc-dec.app/api/dec-videasy", { allowedHosts: ["enc-dec.app"], method: "POST", headers: { "Content-Type": "application/json", "User-Agent": UA }, body: JSON.stringify({ text: enc, id: String(id), seed }), signal }, 15000);
+  if (!dec.ok) throw new Error(`dec ${dec.status}`);
+  const j = await dec.json();
+  if (j.status !== 200) throw new Error(j.error || "Decrypt failed");
+  return { player: "videasy", status: "success", result: j.result };
 }
 
-function formatItem(item, typeOverride = null) {
-  const mediaType = typeOverride || item.media_type || (item.title ? "movie" : "tv");
-  const title = item.title || item.name || "Untitled";
-  const originalTitle = item.original_title || item.original_name || title;
-  const year = (item.release_date || item.first_air_date || "").split("-")[0] || "N/A";
-  const rating = item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : 0.0;
-  const genres = (item.genre_ids || []).map((id) => GENRE_MAP[id] || id);
-  const poster = item.poster_path ? `${IMAGE_BASE_URL}${item.poster_path}` : null;
-  const backdrop = item.backdrop_path
-    ? `${IMAGE_BASE_URL.replace("w500", "original")}${item.backdrop_path}`
-    : null;
-  return {
-    id: item.id,
-    title,
-    original_title: originalTitle,
-    type: mediaType,
-    year,
-    rating,
-    genres,
-    overview: item.overview || "",
-    poster_url: poster,
-    backdrop_url: backdrop,
-    streams: generateStreams(item.id, mediaType),
-  };
+async function resolvePage(cfg, id, type, s, e, signal) {
+  const base = type === "tv" ? `https://${cfg.domain}/tv/${id}/${s}/${e}/` : `https://${cfg.domain}/movie/${id}/`;
+  const pg = await safeFetch(base, { allowedHosts: playerAllowedHosts(), headers: { "User-Agent": UA }, signal }, 15000);
+  if (!pg.ok) throw new Error(`page ${pg.status}`);
+  const m = (await pg.text()).match(/\\"en\\":\\"(.*?)\\"/) || (await pg.text()).match(/"en":"(.*?)"/);
+  if (!m) throw new Error(`enc content tidak ada di ${cfg.domain}`);
+  const parts = await safeFetch(`https://enc-dec.app/api/enc-${cfg.key}?text=${encodeURIComponent(m[1])}`, { allowedHosts: ["enc-dec.app"], headers: { "User-Agent": UA }, signal }, 15000);
+  if (!parts.ok) throw new Error(`enc ${parts.status}`);
+  const pd = await parts.json();
+  if (pd.status !== 200) throw new Error(pd.error || "enc fail");
+  const { servers, stream, token } = pd.result;
+  const hdr = { "User-Agent": UA, Referer: `https://${cfg.domain}/`, "X-Requested-With": "XMLHttpRequest", "X-CSRF-Token": token, "Content-Type": "application/json" };
+  assertDyn(servers);
+  const sE = await safeFetch(servers, { allowedHosts: playerAllowedHosts(), method: "POST", headers: hdr, body: "{}", signal }, 15000);
+  if (!sE.ok) throw new Error(`srv ${sE.status}`);
+  const sD = await safeFetch(`https://enc-dec.app/api/dec-${cfg.key}`, { allowedHosts: ["enc-dec.app"], method: "POST", headers: { "Content-Type": "application/json", "User-Agent": UA }, body: JSON.stringify({ text: await sE.text() }), signal }, 15000);
+  if (!sD.ok) throw new Error(`dec-srv ${sD.status}`);
+  const sJ = await sD.json();
+  if (sJ.status !== 200) throw new Error("dec srv fail");
+  const stUrl = `${stream}/${sJ.result[0].data}`;
+  assertDyn(stUrl);
+  const stE = await safeFetch(stUrl, { allowedHosts: playerAllowedHosts(), method: "POST", headers: hdr, body: "{}", signal }, 15000);
+  if (!stE.ok) throw new Error(`st ${stE.status}`);
+  const stD = await safeFetch(`https://enc-dec.app/api/dec-${cfg.key}`, { allowedHosts: ["enc-dec.app"], method: "POST", headers: { "Content-Type": "application/json", "User-Agent": UA }, body: JSON.stringify({ text: await stE.text() }), signal }, 15000);
+  if (!stD.ok) throw new Error(`dec-st ${stD.status}`);
+  const stJ = await stD.json();
+  if (stJ.status !== 200) throw new Error("dec st fail");
+  return { player: cfg.key, status: "success", result: stJ.result };
 }
 
-/* ---------- ACTIONS: home, movies, tv, top-imdb, search, detail ---------- */
-
-async function scrapeHome(signal) {
-  const apiKey = await getApiKey(signal);
-
-  const [tvTrendingDay, movieTrendingDay] = await Promise.all([
-    tmdbFetch("trending/tv/day", null, apiKey, signal),
-    tmdbFetch("trending/movie/day", null, apiKey, signal),
-  ]);
-  const bannerItems = [
-    ...tvTrendingDay.results.slice(0, 3).map((i) => ({ ...i, media_type: "tv" })),
-    ...movieTrendingDay.results.slice(0, 3).map((i) => ({ ...i, media_type: "movie" })),
-  ].map((i) => formatItem(i));
-
-  const [trendingMovies, trendingSeries, topRated, upcoming] = await Promise.all([
-    tmdbFetch("trending/movie/week", null, apiKey, signal),
-    tmdbFetch("trending/tv/week", null, apiKey, signal),
-    tmdbFetch("movie/top_rated", { page: 1 }, apiKey, signal),
-    tmdbFetch("movie/upcoming", { page: 1 }, apiKey, signal),
-  ]);
-
-  return {
-    hero_banner: bannerItems,
-    trending_movies: trendingMovies.results.slice(0, 20).map((i) => formatItem(i, "movie")),
-    trending_series: trendingSeries.results.slice(0, 20).map((i) => formatItem(i, "tv")),
-    all_time_best: topRated.results.slice(0, 20).map((i) => formatItem(i, "movie")),
-    upcoming: upcoming.results.slice(0, 20).map((i) => formatItem(i, "movie")),
-  };
+async function getDirect(id, type, s, e, player, signal) {
+  const p = String(player || "videasy").toLowerCase(), t = type === "tv" ? "tv" : "movie";
+  if (t === "tv" && (s == null || e == null)) throw new Error("season dan episode wajib untuk TV");
+  if (p === "videasy") return await getDirectVideasy(id, t, s, e, signal);
+  const map = { vidcore: { key: "vidcore", domain: "vidcore.net" }, vidfast: { key: "vidfast", domain: "vidfast.pro" } };
+  if (!map[p]) throw new Error(`Player tidak didukung untuk direct: ${player}. Pilih videasy, vidcore, vidfast.`);
+  return await resolvePage(map[p], id, t, s, e, signal);
 }
 
-async function scrapeMovies(filter, page, signal) {
-  const valid = ["popular", "top_rated", "now_playing", "upcoming"];
-  if (!valid.includes(filter)) {
-    throw new Error(`Filter movies tidak valid. Pilih: ${valid.join(", ")}`);
-  }
-  const apiKey = await getApiKey(signal);
-  const data = await tmdbFetch(`movie/${filter}`, { page }, apiKey, signal);
-  return {
-    filter,
-    page: data.page,
-    total_pages: data.total_pages > 500 ? 500 : data.total_pages,
-    total_results: data.total_results,
-    results: data.results.map((i) => formatItem(i, "movie")),
-  };
-}
-
-async function scrapeTV(filter, page, signal) {
-  const valid = ["popular", "top_rated", "on_the_air", "airing_today"];
-  let actualFilter = filter;
-  if (filter === "on_air" || filter === "on-air") actualFilter = "on_the_air";
-  if (filter === "airing_today" || filter === "airing-today") actualFilter = "airing_today";
-  if (!valid.includes(actualFilter)) {
-    throw new Error(`Filter TV tidak valid. Pilih: ${valid.join(", ")}`);
-  }
-  const apiKey = await getApiKey(signal);
-  const data = await tmdbFetch(`tv/${actualFilter}`, { page }, apiKey, signal);
-  return {
-    filter: actualFilter,
-    page: data.page,
-    total_pages: data.total_pages > 500 ? 500 : data.total_pages,
-    total_results: data.total_results,
-    results: data.results.map((i) => formatItem(i, "tv")),
-  };
-}
-
-async function scrapeTopIMDb(type, page, signal) {
-  const valid = ["movie", "tv"];
-  if (!valid.includes(type)) throw new Error(`type harus salah satu: ${valid.join(", ")}`);
-  const apiKey = await getApiKey(signal);
-  const data = await tmdbFetch(`${type}/top_rated`, { page }, apiKey, signal);
-  return {
-    media_type: type,
-    page: data.page,
-    total_pages: data.total_pages > 500 ? 500 : data.total_pages,
-    total_results: data.total_results,
-    results: data.results.map((item, index) => {
-      const f = formatItem(item, type);
-      f.imdb_rank = (page - 1) * 20 + index + 1;
-      return f;
-    }),
-  };
-}
-
-async function performSearch(query, page, signal) {
-  const apiKey = await getApiKey(signal);
-  const data = await tmdbFetch("search/multi", { query, page }, apiKey, signal);
-  return {
-    query,
-    page: data.page,
-    total_pages: data.total_pages,
-    total_results: data.total_results,
-    results: data.results
-      .filter((i) => i.media_type !== "person")
-      .map((i) => formatItem(i)),
-  };
-}
-
-async function scrapeMovieDetail(id, signal) {
-  const apiKey = await getApiKey(signal);
-  const [details, credits, similar] = await Promise.all([
-    tmdbFetch(`movie/${id}`, null, apiKey, signal),
-    tmdbFetch(`movie/${id}/credits`, null, apiKey, signal),
-    tmdbFetch(`movie/${id}/similar`, null, apiKey, signal),
-  ]);
-  const cast = (credits.cast || []).slice(0, 10).map((c) => ({
-    name: c.name,
-    character: c.character,
-    profile_url: c.profile_path ? `${IMAGE_BASE_URL}${c.profile_path}` : null,
-  }));
-  const directors = (credits.crew || []).filter((c) => c.job === "Director").map((c) => c.name);
-  const formatted = formatItem(details, "movie");
-  formatted.genres = (details.genres || []).map((g) => g.name);
-  formatted.cast = cast;
-  formatted.directors = directors;
-  formatted.similar_movies = (similar.results || []).slice(0, 10).map((i) => formatItem(i, "movie"));
-  formatted.tagline = details.tagline || "";
-  formatted.status = details.status || "";
-  formatted.budget = details.budget || 0;
-  formatted.revenue = details.revenue || 0;
-  formatted.runtime_minutes = details.runtime || 0;
-  return formatted;
-}
-
-async function scrapeTVDetail(id, signal) {
-  const apiKey = await getApiKey(signal);
-  const [details, credits, similar] = await Promise.all([
-    tmdbFetch(`tv/${id}`, null, apiKey, signal),
-    tmdbFetch(`tv/${id}/credits`, null, apiKey, signal),
-    tmdbFetch(`tv/${id}/similar`, null, apiKey, signal),
-  ]);
-  const cast = (credits.cast || []).slice(0, 10).map((c) => ({
-    name: c.name,
-    character: c.character,
-    profile_url: c.profile_path ? `${IMAGE_BASE_URL}${c.profile_path}` : null,
-  }));
-
-  const seasons = [];
-  const numSeasons = details.number_of_seasons || 0;
-  for (let s = 1; s <= numSeasons; s++) {
-    try {
-      const sd = await tmdbFetch(`tv/${id}/season/${s}`, null, apiKey, signal);
-      const episodes = (sd.episodes || []).map((ep) => ({
-        id: ep.id,
-        episode_number: ep.episode_number,
-        name: ep.name,
-        overview: ep.overview || "",
-        air_date: ep.air_date || "N/A",
-        rating: ep.vote_average ? parseFloat(ep.vote_average.toFixed(1)) : 0.0,
-        still_path: ep.still_path ? `${IMAGE_BASE_URL}${ep.still_path}` : null,
-        streams: generateStreams(id, "tv", s, ep.episode_number),
-      }));
-      seasons.push({
-        season_number: s,
-        name: sd.name || `Season ${s}`,
-        overview: sd.overview || "",
-        air_date: sd.air_date || "N/A",
-        poster_url: sd.poster_path ? `${IMAGE_BASE_URL}${sd.poster_path}` : null,
-        episodes,
-      });
-    } catch {
-      /* skip season yang gagal */
-    }
-  }
-
-  const formatted = formatItem(details, "tv");
-  formatted.genres = (details.genres || []).map((g) => g.name);
-  formatted.cast = cast;
-  formatted.creators = (details.created_by || []).map((c) => c.name);
-  formatted.similar_shows = (similar.results || []).slice(0, 10).map((i) => formatItem(i, "tv"));
-  formatted.number_of_seasons = details.number_of_seasons || 0;
-  formatted.number_of_episodes = details.number_of_episodes || 0;
-  formatted.status = details.status || "";
-  formatted.seasons = seasons;
-  return formatted;
-}
-
-/* ---------- ACTION: streams (embed URL list) ---------- */
-
-function getEmbedList(id, type, season, episode) {
-  const servers = [];
-  for (const [name, p] of Object.entries(SERVER_PATTERNS)) {
-    const url =
-      type === "movie"
-        ? `${p.movie}${id}${p.suffix}`
-        : `${p.tv}${id}/${season}/${episode}${p.suffix}`;
-    servers.push({
-      server: name,
-      domain: p.domain,
-      supportsDirect: p.direct,
-      url,
-    });
-  }
-  return {
-    id: String(id),
-    type,
-    season: type === "tv" ? season : null,
-    episode: type === "tv" ? episode : null,
-    total: servers.length,
-    servers,
-  };
-}
-
-/* ---------- ACTION: direct (.m3u8 resolver) ---------- */
-
-async function getDirectVideasy(id, type, seasonNum, episodeNum, signal) {
-  const apiKey = await getApiKey(signal);
-  const details = await tmdbFetch(`${type}/${id}`, null, apiKey, signal);
-  const title = details.title || details.name || "";
-  const releaseDate = details.release_date || details.first_air_date || "";
-  const year = releaseDate ? releaseDate.split("-")[0] : "";
-  const imdbId = details.imdb_id || "";
-  const encTitle = encodeURIComponent(encodeURIComponent(title));
-
-  const headers = {
-    Accept: "*/*",
-    Origin: "https://player.videasy.to",
-    Referer: "https://player.videasy.to/",
-    "User-Agent": UA,
-  };
-
-  const seedRes = await safeFetch(
-    `https://api.wingsdatabase.com/seed?mediaId=${id}`,
-    { allowedHosts: ["api.wingsdatabase.com"], headers, signal },
-    15000
-  );
-  if (!seedRes.ok) throw new Error(`wingsdatabase seed ${seedRes.status}`);
-  const seed = (await seedRes.json()).seed;
-
-  const sourcesUrl =
-    type === "tv"
-      ? `https://api.wingsdatabase.com/cdn/sources-with-title?title=${encTitle}&mediaType=tv&year=${year}&episodeId=${episodeNum}&seasonId=${seasonNum}&tmdbId=${id}&imdbId=${imdbId}&enc=2&seed=${seed}`
-      : `https://api.wingsdatabase.com/cdn/sources-with-title?title=${encTitle}&mediaType=movie&year=${year}&tmdbId=${id}&imdbId=${imdbId}&enc=2&seed=${seed}`;
-
-  const sourcesRes = await safeFetch(
-    sourcesUrl,
-    { allowedHosts: ["api.wingsdatabase.com"], headers, signal },
-    15000
-  );
-  if (!sourcesRes.ok) throw new Error(`wingsdatabase sources ${sourcesRes.status}`);
-  const encData = await sourcesRes.json();
-
-  const decRes = await safeFetch(
-    "https://enc-dec.app/api/dec-videasy",
-    {
-      allowedHosts: ["enc-dec.app"],
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": UA },
-      body: JSON.stringify({ text: encData, id: String(id), seed }),
-      signal,
-    },
-    15000
-  );
-  if (!decRes.ok) throw new Error(`enc-dec dec-videasy ${decRes.status}`);
-  const decData = await decRes.json();
-  if (decData.status !== 200) throw new Error(decData.error || "Decryption failed");
-  return { player: "videasy", status: "success", result: decData.result };
-}
-
-async function resolvePagePlayer(cfg, id, type, seasonNum, episodeNum, signal) {
-  const isTv = type === "tv";
-  const baseUrl = isTv
-    ? `https://${cfg.domain}/tv/${id}/${seasonNum}/${episodeNum}/`
-    : `https://${cfg.domain}/movie/${id}/`;
-
-  const pageRes = await safeFetch(
-    baseUrl,
-    { allowedHosts: playerAllowedHosts(), headers: { "User-Agent": UA }, signal },
-    15000
-  );
-  if (!pageRes.ok) throw new Error(`Player page ${cfg.domain} ${pageRes.status}`);
-  const html = await pageRes.text();
-  const match = html.match(/\\"en\\":\\"(.*?)\\"/) || html.match(/"en":"(.*?)"/);
-  if (!match) throw new Error(`Encrypted content tidak ditemukan di ${cfg.domain}`);
-  const text = match[1];
-
-  const partsRes = await safeFetch(
-    `https://enc-dec.app/api/enc-${cfg.key}?text=${encodeURIComponent(text)}`,
-    { allowedHosts: ["enc-dec.app"], headers: { "User-Agent": UA }, signal },
-    15000
-  );
-  if (!partsRes.ok) throw new Error(`enc-dec enc-${cfg.key} ${partsRes.status}`);
-  const partsData = await partsRes.json();
-  if (partsData.status !== 200) throw new Error(partsData.error || "Encryption failed");
-  const { servers, stream, token } = partsData.result;
-
-  const hdr = {
-    "User-Agent": UA,
-    Referer: `https://${cfg.domain}/`,
-    "X-Requested-With": "XMLHttpRequest",
-    "X-CSRF-Token": token,
-    "Content-Type": "application/json",
-  };
-
-  assertDynamicPlayerUrl(servers);
-  const serversEncRes = await safeFetch(
-    servers,
-    {
-      allowedHosts: playerAllowedHosts(),
-      method: "POST",
-      headers: hdr,
-      body: "{}",
-      signal,
-    },
-    15000
-  );
-  if (!serversEncRes.ok) throw new Error(`servers fetch ${serversEncRes.status}`);
-  const serversEncText = await serversEncRes.text();
-
-  const decServersRes = await safeFetch(
-    `https://enc-dec.app/api/dec-${cfg.key}`,
-    {
-      allowedHosts: ["enc-dec.app"],
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": UA },
-      body: JSON.stringify({ text: serversEncText }),
-      signal,
-    },
-    15000
-  );
-  if (!decServersRes.ok) throw new Error(`enc-dec dec-servers ${decServersRes.status}`);
-  const decServers = await decServersRes.json();
-  if (decServers.status !== 200) throw new Error("Failed to decrypt servers");
-
-  const serverData = decServers.result[0].data;
-  const streamEncUrl = `${stream}/${serverData}`;
-  assertDynamicPlayerUrl(streamEncUrl);
-  const streamEncRes = await safeFetch(
-    streamEncUrl,
-    {
-      allowedHosts: playerAllowedHosts(),
-      method: "POST",
-      headers: hdr,
-      body: "{}",
-      signal,
-    },
-    15000
-  );
-  if (!streamEncRes.ok) throw new Error(`stream fetch ${streamEncRes.status}`);
-  const streamEncText = await streamEncRes.text();
-
-  const decStreamRes = await safeFetch(
-    `https://enc-dec.app/api/dec-${cfg.key}`,
-    {
-      allowedHosts: ["enc-dec.app"],
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": UA },
-      body: JSON.stringify({ text: streamEncText }),
-      signal,
-    },
-    15000
-  );
-  if (!decStreamRes.ok) throw new Error(`enc-dec dec-stream ${decStreamRes.status}`);
-  const decStream = await decStreamRes.json();
-  if (decStream.status !== 200) throw new Error("Failed to decrypt stream");
-  return { player: cfg.key, status: "success", result: decStream.result };
-}
-
-async function getDirect(id, type, seasonNum, episodeNum, player, signal) {
-  const pKey = String(player || "videasy").toLowerCase();
-  const cleanType = type === "tv" ? "tv" : "movie";
-
-  if (cleanType === "tv" && (seasonNum == null || episodeNum == null)) {
-    throw new Error("season dan episode wajib untuk TV pada action=direct");
-  }
-
-  if (pKey === "videasy") {
-    return await getDirectVideasy(id, cleanType, seasonNum, episodeNum, signal);
-  }
-
-  const configs = {
-    vidcore: { key: "vidcore", domain: "vidcore.net" },
-    vidfast: { key: "vidfast", domain: "vidfast.pro" },
-  };
-  const cfg = configs[pKey];
-  if (!cfg) {
-    throw new Error(
-      `Player tidak didukung untuk direct: ${player}. Pilih videasy, vidcore, atau vidfast.`
-    );
-  }
-  return await resolvePagePlayer(cfg, id, cleanType, seasonNum, episodeNum, signal);
-}
-
-/* ---------- PLUGIN ---------- */
-
+/* ===== PLUGIN: 1 file → 8 sub-route ===== */
 export default {
-  name: "HuraWatch Film",
+  name: "Hura",
   category: "film",
-  description:
-    "Scraper hurawatch.sx via TMDB — home, movies, tv, top-imdb, search, detail (lengkap season/episode), streams (embed URL 6 server), dan direct (.m3u8 videasy/vidcore/vidfast).",
   method: ["GET", "POST"],
   timeout: 120_000,
-  params: {
-    action: {
-      type: "string",
-      required: true,
-      enum: ["home", "movies", "tv", "top-imdb", "search", "detail", "streams", "direct"],
-      description:
-        "Aksi: home | movies | tv | top-imdb | search | detail | streams | direct",
+  routes: {
+    home: { description: "Home sections: hero banner, trending, top rated, upcoming.", params: {}, execute: async (_r, _s, { signal }) => getHome(signal) },
+    movies: {
+      description: "Katalog movies.",
+      timeout: 60_000,
+      params: { filter: { type: "string", enum: ["popular", "top_rated", "now_playing", "upcoming"], description: "Filter (default popular)" }, page: { type: "number", minimum: 1, maximum: 500 } },
+      execute: async (_r, _s, { input, signal }) => getMovies(input.filter || "popular", input.page || 1, signal),
     },
-    query: {
-      type: "string",
-      maxLength: 200,
-      description: "Kata kunci (wajib untuk action=search).",
+    tv: {
+      description: "Katalog TV shows.",
+      timeout: 60_000,
+      params: { filter: { type: "string", enum: ["popular", "top_rated", "on_the_air", "airing_today"], description: "Filter (default popular)" }, page: { type: "number", minimum: 1, maximum: 500 } },
+      execute: async (_r, _s, { input, signal }) => getTV(input.filter || "popular", input.page || 1, signal),
     },
-    page: {
-      type: "number",
-      minimum: 1,
-      maximum: 500,
-      description: "Halaman hasil (default 1; movies/tv/top-imdb/search).",
+    "top-imdb": {
+      description: "Chart Top IMDb dengan nomor peringkat.",
+      timeout: 60_000,
+      params: { type: { type: "string", enum: ["movie", "tv"], description: "Tipe (default movie)" }, page: { type: "number", minimum: 1, maximum: 500 } },
+      execute: async (_r, _s, { input, signal }) => getTopIMDb(input.type || "movie", input.page || 1, signal),
     },
-    filter: {
-      type: "string",
-      enum: [
-        "popular",
-        "top_rated",
-        "now_playing",
-        "upcoming",
-        "on_the_air",
-        "airing_today",
-      ],
-      description:
-        "Filter movies: popular|top_rated|now_playing|upcoming. Filter tv: popular|top_rated|on_the_air|airing_today. Default popular.",
+    search: {
+      description: "Pencarian multi (movie & TV) via TMDB.",
+      timeout: 60_000,
+      params: { query: { type: "string", required: true, maxLength: 200 }, page: { type: "number", minimum: 1, maximum: 500 } },
+      execute: async (_r, _s, { input, signal }) => doSearch(input.query, input.page || 1, signal),
     },
-    type: {
-      type: "string",
-      enum: ["movie", "tv"],
-      description: "Tipe media (top-imdb, detail, streams, direct; default movie).",
+    detail: {
+      description: "Detail lengkap + seasons/episodes + URL stream per server.",
+      timeout: 120_000,
+      params: { id: { type: "number", required: true, minimum: 1 }, type: { type: "string", enum: ["movie", "tv"], description: "Tipe (default movie)" } },
+      execute: async (_r, _s, { input, signal }) => getDetail(input.id, input.type === "tv" ? "tv" : "movie", signal),
     },
-    id: {
-      type: "number",
-      minimum: 1,
-      description: "TMDB ID (wajib untuk detail/streams/direct).",
+    streams: {
+      description: "URL embed 6 server + flag supportsDirect.",
+      timeout: 30_000,
+      params: { id: { type: "number", required: true, minimum: 1 }, type: { type: "string", enum: ["movie", "tv"] }, season: { type: "number", minimum: 1, maximum: 100 }, episode: { type: "number", minimum: 1, maximum: 2000 } },
+      execute: async (_r, _s, { input }) => {
+        const t = input.type || "movie";
+        if (t === "tv" && (input.season == null || input.episode == null)) throw new Error("season dan episode wajib untuk TV");
+        return getStreams(input.id, t, input.season, input.episode);
+      },
     },
-    season: {
-      type: "number",
-      minimum: 1,
-      maximum: 100,
-      description: "Nomor season (wajib untuk TV: streams/direct).",
+    direct: {
+      description: "Resolusi direct .m3u8 (videasy/vidcore/vidfast).",
+      timeout: 120_000,
+      params: { id: { type: "number", required: true, minimum: 1 }, type: { type: "string", enum: ["movie", "tv"] }, season: { type: "number", minimum: 1, maximum: 100 }, episode: { type: "number", minimum: 1, maximum: 2000 }, player: { type: "string", enum: ["videasy", "vidcore", "vidfast"], description: "Player (default videasy)" } },
+      execute: async (_r, _s, { input, signal }) => {
+        const t = input.type || "movie";
+        if (t === "tv" && (input.season == null || input.episode == null)) throw new Error("season dan episode wajib untuk TV");
+        return getDirect(input.id, t, input.season, input.episode, input.player || "videasy", signal);
+      },
     },
-    episode: {
-      type: "number",
-      minimum: 1,
-      maximum: 2000,
-      description: "Nomor episode (wajib untuk TV: streams/direct).",
-    },
-    player: {
-      type: "string",
-      enum: ["videasy", "vidcore", "vidfast"],
-      description: "Player untuk action=direct (default videasy).",
-    },
-  },
-  execute: async (_req, _res, { input, signal }) => {
-    switch (input.action) {
-      case "home":
-        return await scrapeHome(signal);
-      case "movies":
-        return await scrapeMovies(input.filter || "popular", input.page || 1, signal);
-      case "tv":
-        return await scrapeTV(input.filter || "popular", input.page || 1, signal);
-      case "top-imdb":
-        return await scrapeTopIMDb(input.type || "movie", input.page || 1, signal);
-      case "search":
-        if (!input.query) throw new Error("query wajib untuk action=search");
-        return await performSearch(input.query, input.page || 1, signal);
-      case "detail": {
-        if (input.id == null) throw new Error("id wajib untuk action=detail");
-        const type = input.type === "tv" ? "tv" : "movie";
-        return type === "tv"
-          ? await scrapeTVDetail(input.id, signal)
-          : await scrapeMovieDetail(input.id, signal);
-      }
-      case "streams": {
-        if (input.id == null) throw new Error("id wajib untuk action=streams");
-        const type = input.type === "tv" ? "tv" : "movie";
-        if (type === "tv" && (input.season == null || input.episode == null)) {
-          throw new Error("season dan episode wajib untuk TV pada action=streams");
-        }
-        return getEmbedList(input.id, type, input.season, input.episode);
-      }
-      case "direct": {
-        if (input.id == null) throw new Error("id wajib untuk action=direct");
-        return await getDirect(
-          input.id,
-          input.type || "movie",
-          input.season,
-          input.episode,
-          input.player || "videasy",
-          signal
-        );
-      }
-      default:
-        throw new Error(`action tidak dikenal: ${input.action}`);
-    }
   },
 };
