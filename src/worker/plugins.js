@@ -7,6 +7,12 @@ import ping from "../plugins/info/ping.js";
 import pinterest from "../plugins/search/pinterest.js";
 import soundcloud from "../plugins/search/soundcloud.js";
 import tempmail from "../plugins/tools/tempmail.js";
+import film7reels from "../plugins/film/7reels.js";
+import filmHura from "../plugins/film/hura.js";
+
+// DAN HAPUS entri di activeWorkerPlugins:
+// "/film/7reels-stream": film7reelsStream,
+// "/film/hura-stream": filmHuraStream,
 
 export const activeWorkerPlugins = [
   { endpoint: "/downloader/capcut", handler: capcut },
