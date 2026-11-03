@@ -3,6 +3,7 @@ export default {
   category: "info",
   description: "Check server latency, uptime, and memory usage",
   method: ["GET"],
+  hidden: true,
   params: {},
   execute: async (_req, _res, { metrics } = {}) => ({
     uptime: metrics?.uptime ?? `${process.uptime().toFixed(0)}s`,
