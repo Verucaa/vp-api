@@ -1,389 +1,221 @@
 import { safeFetch } from "../../plugin-runtime.js";
-import CryptoJS from "crypto-js";
 
 /* ===== KONFIG ===== */
-const H5 = "https://h5-api.aoneroom.com/wefeed-h5api-bff";
-const MOBILE = "https://api3.aoneroom.com";
-const HOST = "officialmoviebox.com";
-
-// Menggunakan CryptoJS untuk decode Base64 agar aman di Cloudflare Workers
-const GATEWAY_KEY = CryptoJS.enc.Base64.parse("76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O");
+const BASE_URL = "https://h5-api.aoneroom.com";
+const PLAY_HOST = "https://themoviebox.xyz";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
 const ALLOWED_HOSTS = [
-  "aoneroom.com",
-  "www.aoneroom.com",
   "h5-api.aoneroom.com",
-  "api.aoneroom.com",
-  "api1.aoneroom.com",
-  "api2.aoneroom.com",
-  "api3.aoneroom.com",
-  "api4.aoneroom.com",
-  "api5.aoneroom.com",
-  "cdn.aoneroom.com",
-  "static.aoneroom.com",
-  "officialmoviebox.com",
-  "www.officialmoviebox.com",
-  "m.officialmoviebox.com",
+  "themoviebox.xyz",
+  "www.themoviebox.xyz",
 ];
 
-const UA_H5 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-const UA_MOB = "com.community.oneroom/50020126 (Linux; U; Android 14; en_US; Pixel 6; Build/UQ1A)";
+let cachedToken = null;
 
-let guestJwt = null;
+export const RANKING_LISTS = {
+  TRENDING_NOW: "872031290915189720",
+  TRENDING_MOVIE: "8821254238245470240",
+  TRENDING_DRAMA: "8617025562613270856",
+  TRENDING_ANIME: "567783349092340776",
+  INDO_FILM: "6528093688173053896",
+  K_DRAMA: "4380734070238626200",
+  INDO_DRAMA: "5283462032510044280",
+  ANIME: "8617025562613270856",
+  HOLLYWOOD: "1469286917119311888",
+  C_DRAMA: "8624142774394406504",
+  INDO_HORROR: "5848753831881965888",
+  THAI_DRAMA: "1164329479448281992",
+  SHORT_TV: "567783349092340776",
+  FUNNY_HORROR_CRIME: "3528002473103362040",
+  INDO_DUBBED: "5549742004948601072",
+  RECENTLY_ADDED: "4019055174353407000",
+  INDONESIAN_KILLERS: "5863917898430924656",
+  HAPPY_LIFE: "4993310637209048808",
+  RUN_ESCAPE_DEATH: "8703838933408530536",
+  BAD_ROMANCE: "4539350473970797944",
+  CYBERPUNK: "3766111568753312664",
+  MONSTER_TITAN: "1653005382303864120",
+  SEA_ADVENTURE: "6708972608207443352"
+};
 
-/* ===== HELPER ===== */
-function md5hex(s) {
-  return CryptoJS.MD5(s).toString();
-}
-
-function clientToken() {
-  const ts = String(Date.now());
-  return ts + "," + md5hex(ts.split("").reverse().join(""));
-}
-
-function clientInfo() {
-  return JSON.stringify({
-    package_name: "com.community.oneroom",
-    version_name: "4.0.02",
-    version_code: 50020126,
-    os: "android",
-    os_version: "14",
-    device_id: "868203051234567",
-    brand: "Google",
-    model: "Pixel 6",
-    system_language: "en",
-    net: "wifi",
-    region: "IN",
-    timezone: "Asia/Kolkata",
-    sp_code: "404",
-  });
-}
-
-function trSignature(method, fullUrl, body) {
-  const ts = Date.now();
-  const u = new URL(fullUrl);
-  const params = [...u.searchParams.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  const qs = params.map(([k, v]) => k + "=" + v).join("&");
-  const resource = u.pathname + (qs ? "?" + qs : "");
-  const bodyStr = body || "";
-  const bodyMd5 = bodyStr ? md5hex(bodyStr.slice(0, 0x19000)) : "";
-  const canon = [
-    method.toUpperCase(),
-    "application/json",
-    "application/json;charset=UTF-8",
-    bodyStr ? String(bodyStr.length) : "",
-    String(ts),
-    bodyMd5,
-    resource,
-  ].join("\n");
-  
-  // Menggunakan CryptoJS HmacMD5
-  const dig = CryptoJS.HmacMD5(canon, GATEWAY_KEY).toString(CryptoJS.enc.Base64);
-  return ts + "|2|" + dig;
-}
-
-async function httpGet(url, headers, signal) {
-  const res = await safeFetch(
-    url,
-    { allowedHosts: ALLOWED_HOSTS, headers, signal },
-    25000
-  );
-  const body = await res.text();
-  return { status: res.status, response: res, body };
-}
-
-async function mobileGet(path, signal) {
-  const url = MOBILE + path;
-  const headers = {
-    "User-Agent": UA_MOB,
-    Accept: "application/json",
-    "Content-Type": "application/json;charset=UTF-8",
-    "X-M-Version": "4.0.02",
-    "X-Client-Token": clientToken(),
-    "X-Client-Info": clientInfo(),
-    "X-Client-Status": "0",
-    "x-tr-signature": trSignature("GET", url),
-  };
-  if (guestJwt) headers.Authorization = "Bearer " + guestJwt;
-  return httpGet(url, headers, signal);
-}
-
-async function ensureGuest(signal) {
-  if (guestJwt) return guestJwt;
-  const r = await mobileGet("/wefeed-mobile-bff/tab-operating?page=1&tabId=0", signal);
-  const raw =
-    r.response.headers.get("x-user") ||
-    r.response.headers.get("X-User") ||
-    "";
-  try {
-    guestJwt = JSON.parse(raw).token;
-  } catch {
-    guestJwt = raw.startsWith("ey") ? raw : null;
-  }
-  if (!guestJwt) throw new Error("guest bootstrap failed");
-  return guestJwt;
-}
-
-async function h5Get(path, signal) {
-  const url = path.startsWith("http") ? path : H5 + path;
-  const r = await httpGet(
-    url,
-    {
-      "User-Agent": UA_H5,
-      Accept: "application/json",
-      Referer: "https://" + HOST + "/",
-      Origin: "https://" + HOST,
-    },
+/* ===== HELPERS ===== */
+async function initToken(signal) {
+  const homeUrl = `${BASE_URL}/wefeed-h5api-bff/home?host=themoviebox.xyz`;
+  const res = await safeFetch(homeUrl, {
+    allowedHosts: ALLOWED_HOSTS,
+    headers: { "User-Agent": UA },
     signal
-  );
-  try {
-    return JSON.parse(r.body);
-  } catch {
-    const preview = String(r.body || "").slice(0, 300).replace(/\s+/g, " ");
-    throw new Error(
-      `MovieBox non-JSON response (status=${r.status}, url=${url}): ${preview}`
-    );
+  }, 15000);
+
+  if (!res.ok) {
+    throw new Error(`Failed to contact Moviebox Home API. Status: ${res.status}`);
   }
+
+  // 1. Coba ambil dari Set-Cookie
+  const setCookie = res.headers.get("set-cookie");
+  if (setCookie) {
+    const match = setCookie.match(/token=([^;]+)/);
+    if (match) {
+      cachedToken = match[1];
+      return cachedToken;
+    }
+  }
+
+  // 2. Coba ambil dari header X-User
+  const xUser = res.headers.get("x-user");
+  if (xUser) {
+    try {
+      const parsed = JSON.parse(xUser);
+      if (parsed.token) {
+        cachedToken = parsed.token;
+        return cachedToken;
+      }
+    } catch (e) {}
+  }
+
+  throw new Error("Failed to retrieve token from Home API response headers");
 }
 
-function decodeSignCookie(sc) {
-  if (!sc) return null;
-  const m = String(sc).match(/urlprefix=([^:]+)/);
-  if (!m) return null;
-  try {
-    // atob didukung secara native di Cloudflare Workers (menggantikan Buffer)
-    const prefix = atob(m[1]);
-    return {
-      prefix,
-      mpd: prefix.replace(/\/?$/, "/") + "index.mpd",
-      m3u8: prefix.replace(/\/?$/, "/") + "index.m3u8",
-    };
-  } catch {
-    return null;
+async function request(path, options = {}, signal, retryCount = 0) {
+  if (!cachedToken) {
+    await initToken(signal);
   }
+
+  const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
+  const headers = {
+    "Content-Type": "application/json",
+    "User-Agent": UA,
+    Authorization: `Bearer ${cachedToken}`,
+    ...(options.headers || {})
+  };
+
+  const fetchOptions = {
+    ...options,
+    method: options.method || "GET",
+    headers,
+    allowedHosts: ALLOWED_HOSTS,
+    signal
+  };
+
+  const res = await safeFetch(url, fetchOptions, 20000);
+  const text = await res.text();
+  
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`Invalid JSON response: ${text.substring(0, 200)}`);
+  }
+
+  // Auto re-authenticate jika token expired (hanya 1x percobaan)
+  if (data && (data.code === 400 || data.message === "invalid token") && retryCount === 0) {
+    cachedToken = null; // Reset cache
+    return request(path, options, signal, 1); // Retry
+  }
+
+  return data;
+}
+
+async function apiGet(path, searchParams = {}, headers = {}, signal) {
+  const query = new URLSearchParams(searchParams).toString();
+  const fullPath = query ? `${path}?${query}` : path;
+  return request(fullPath, { method: "GET", headers }, signal);
+}
+
+async function apiPost(path, body = {}, headers = {}, signal) {
+  return request(path, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body)
+  }, signal);
 }
 
 /* ===== ACTIONS ===== */
 async function getHome(signal) {
-  const j = await h5Get("/home?host=" + HOST, signal);
-  if (j.code !== 0) throw new Error(j.message || "api error");
-  const ops = (j.data && j.data.operatingList) || [];
-  const out = {
-    platforms: (j.data && j.data.platformList) || [],
-    sections: [],
-  };
-  for (const sec of ops) {
-    const items = [];
-    if (sec.banner && sec.banner.items) {
-      for (const b of sec.banner.items) {
-        const s = b.subject || {};
-        items.push({
-          subjectId: s.subjectId || b.subjectId,
-          title: s.title || b.title,
-          type: s.subjectType,
-          cover: (s.cover && s.cover.url) || (b.image && b.image.url),
-          imdb: s.imdbRatingValue,
-          genre: s.genre,
-          releaseDate: s.releaseDate,
-        });
-      }
-    }
-    if (sec.subjects) {
-      for (const s of sec.subjects) {
-        items.push({
-          subjectId: s.subjectId,
-          title: s.title,
-          type: s.subjectType,
-          cover: s.cover && s.cover.url,
-          imdb: s.imdbRatingValue,
-          genre: s.genre,
-          releaseDate: s.releaseDate,
-        });
-      }
-    }
-    out.sections.push({
-      type: sec.type,
-      title: sec.title,
-      position: sec.position,
-      items,
-    });
-  }
-  return out;
+  return apiGet("/wefeed-h5api-bff/home", { host: "themoviebox.xyz" }, {}, signal);
 }
 
-async function getTrending(page, signal) {
-  const j = await h5Get(
-    "/subject/trending?page=" + (page || 0) + "&perPage=18",
-    signal
-  );
-  if (j.code !== 0) throw new Error(j.message || "api error");
-  return ((j.data && j.data.subjectList) || []).map((s) => ({
-    subjectId: s.subjectId,
-    title: s.title,
-    type: s.subjectType,
-    cover: s.cover && s.cover.url,
-    imdb: s.imdbRatingValue,
-    genre: s.genre,
-    releaseDate: s.releaseDate,
-    country: s.countryName,
-    hasResource: s.hasResource,
-  }));
+async function getTrending(page = 0, perPage = 18, isMovie = false, signal) {
+  const params = { page, perPage };
+  if (isMovie) params.tabId = "ONEROOM_MOVIE";
+  return apiGet("/wefeed-h5api-bff/subject/trending", params, {}, signal);
 }
 
-async function getDetail(id, signal) {
-  const j = await h5Get("/detail?subjectId=" + encodeURIComponent(String(id)), signal);
-  if (j.code !== 0) throw new Error(j.message || "api error");
-  const s = (j.data && j.data.subject) || {};
-  return {
-    subjectId: s.subjectId,
-    title: s.title,
-    type: s.subjectType,
-    description: s.description,
-    releaseDate: s.releaseDate,
-    duration: s.duration,
-    genre: s.genre,
-    cover: s.cover && s.cover.url,
-    country: s.countryName,
-    imdb: s.imdbRatingValue,
-    subtitles: s.subtitles,
-    hasResource: s.hasResource,
-    trailer: s.trailer && s.trailer.videoAddress && s.trailer.videoAddress.url,
-  };
+async function search(keyword, page = 1, perPage = 10, subjectType = 0, signal) {
+  return apiPost("/wefeed-h5api-bff/subject/search", { keyword, page, perPage, subjectType }, {}, signal);
 }
 
-async function getPlay(id, se, ep, signal) {
-  se = se === undefined || se === null ? 0 : Number(se);
-  ep = ep === undefined || ep === null ? 0 : Number(ep);
-  await ensureGuest(signal);
+async function getDetail(detailPath, signal) {
+  return apiGet("/wefeed-h5api-bff/detail", { detailPath }, {}, signal);
+}
 
-  const path =
-    "/wefeed-mobile-bff/subject-api/play-info?subjectId=" +
-    encodeURIComponent(String(id)) +
-    "&se=" + se +
-    "&ep=" + ep;
-  const r = await mobileGet(path, signal);
-  let j;
-  try {
-    j = JSON.parse(r.body);
-  } catch {
-    const preview = String(r.body || "").slice(0, 300).replace(/\s+/g, " ");
-    throw new Error(
-      `MovieBox play non-JSON (status=${r.status}): ${preview}`
-    );
-  }
-  if (j.code !== 0) throw new Error(j.message || "play error " + r.status);
+async function getDetailRec(subjectId, page = 1, perPage = 12, signal) {
+  return apiGet("/wefeed-h5api-bff/subject/detail-rec", { subjectId, page, perPage }, {}, signal);
+}
 
-  const d = j.data || {};
-  const streams = [];
-  for (const s of d.streams || []) {
-    const decoded = decodeSignCookie(s.signCookie);
-    streams.push({
-      format: s.format,
-      id: s.id,
-      resolutions: s.resolutions,
-      size: s.size,
-      duration: s.duration,
-      codec: s.codecName,
-      trapUrl: s.url, // dummy — jangan dipakai
-      signCookie: s.signCookie,
-      dash: decoded && decoded.mpd,
-      hls: decoded && decoded.m3u8,
-      prefix: decoded && decoded.prefix,
-      cookieHeader: s.signCookie
-        ? "Edge-Cache-Cookie=" + String(s.signCookie).replace(/^Edge-Cache-Cookie=/, "")
-        : null,
-    });
-  }
+async function getStream(subjectId, detailPath, se = 0, ep = 0, signal) {
+  const slug = detailPath.split("/").filter(Boolean).pop() || detailPath;
+  const referer = `${PLAY_HOST}/movies/${slug}`;
+  const playUrl = `${PLAY_HOST}/wefeed-h5api-bff/subject/play`;
 
-  return {
-    subjectId: id,
+  return apiGet(playUrl, {
+    subjectId,
     se,
     ep,
-    title: d.title,
-    streams,
-    playUrl: streams[0] && streams[0].dash,
-    playHls: streams[0] && streams[0].hls,
-    note: streams.length
-      ? "pakai dash/hls + Cookie header dari cookieHeader. trapUrl = dummy jangan dipakai"
-      : "no streams",
-  };
+    detailPath,
+    streamSignType: 1
+  }, {
+    Referer: referer
+  }, signal);
 }
 
-/* ===== DIAGNOSTIC ===== */
-async function runDiagnostics(signal) {
-  const probes = {
-    "h5.home": {
-      url: `${H5}/home?host=${HOST}`,
-      headers: {
-        "User-Agent": UA_H5,
-        Accept: "application/json",
-        Referer: `https://${HOST}/`,
-        Origin: `https://${HOST}`,
-      },
-    },
-    "h5.trending": {
-      url: `${H5}/subject/trending?page=0&perPage=18`,
-      headers: {
-        "User-Agent": UA_H5,
-        Accept: "application/json",
-        Referer: `https://${HOST}/`,
-        Origin: `https://${HOST}`,
-      },
-    },
-    "mobile.bootstrap": {
-      url: `${MOBILE}/wefeed-mobile-bff/tab-operating?page=1&tabId=0`,
-      headers: {
-        "User-Agent": UA_MOB,
-        Accept: "application/json",
-        "Content-Type": "application/json;charset=UTF-8",
-        "X-M-Version": "4.0.02",
-        "X-Client-Token": clientToken(),
-        "X-Client-Info": clientInfo(),
-        "X-Client-Status": "0",
-        "x-tr-signature": trSignature(
-          "GET",
-          `${MOBILE}/wefeed-mobile-bff/tab-operating?page=1&tabId=0`
-        ),
-      },
-    },
+async function filterMovie(opts, signal) {
+  const payload = {
+    page: opts.page || 1,
+    perPage: opts.perPage || 28,
+    channelId: 1,
+    genre: opts.genre || "All",
+    country: opts.country || "All",
+    year: opts.year || "All",
+    sort: opts.sort || "ForYou",
+    classify: opts.classify || "All"
   };
+  return apiPost("/wefeed-h5api-bff/subject/filter", payload, {}, signal);
+}
 
-  const results = {};
-  for (const [name, p] of Object.entries(probes)) {
-    const start = Date.now();
-    try {
-      const res = await safeFetch(
-        p.url,
-        { allowedHosts: ALLOWED_HOSTS, headers: p.headers, signal },
-        15000
-      );
-      const text = await res.text();
-      results[name] = {
-        url: p.url,
-        ok: res.ok,
-        status: res.status,
-        durationMs: Date.now() - start,
-        contentType: res.headers.get("content-type"),
-        bodyPreview: text.slice(0, 400),
-      };
-    } catch (err) {
-      results[name] = {
-        url: p.url,
-        durationMs: Date.now() - start,
-        error: err.message,
-        errorName: err.name,
-      };
-    }
-  }
-
-  // Info runtime
-  results.runtime = {
-    hasBuffer: typeof Buffer !== "undefined",
-    hasAtob: typeof atob === "function",
-    hasCryptoJS: typeof CryptoJS !== "undefined",
+async function filterTv(opts, signal) {
+  const payload = {
+    page: opts.page || 1,
+    perPage: opts.perPage || 28,
+    channelId: 2,
+    country: opts.country || "All",
+    sort: opts.sort || "ForYou",
+    rate: opts.rate || ["0", "10"],
+    classify: opts.classify || "All"
   };
+  return apiPost("/wefeed-h5api-bff/subject/filter", payload, {}, signal);
+}
 
-  return results;
+async function filterAnimation(opts, signal) {
+  const payload = {
+    page: opts.page || 1,
+    perPage: opts.perPage || 28,
+    channelId: 1006,
+    country: opts.country || "All",
+    year: opts.year || "All",
+    sort: opts.sort || "ForYou"
+  };
+  return apiPost("/wefeed-h5api-bff/subject/filter", payload, {}, signal);
+}
+
+async function getRankingList(rankingListId, page = 1, perPage = 12, signal) {
+  const id = RANKING_LISTS[rankingListId] || rankingListId;
+  return apiGet("/wefeed-h5api-bff/ranking-list/content", { id, page, perPage }, {}, signal);
+}
+
+async function getMovieTab(signal) {
+  return apiGet("/wefeed-h5api-bff/tab-operating", { tabId: "ONEROOM_MOVIE", host: "themoviebox.xyz" }, {}, signal);
 }
 
 /* ===== PLUGIN ===== */
@@ -394,48 +226,97 @@ export default {
   timeout: 60_000,
   routes: {
     home: {
-      description: "Home sections MovieBox: platforms + operating list.",
-      timeout: 30_000,
+      description: "Homepage MovieBox: banners, platforms, popular sections.",
       cache: 300,
       params: {},
       execute: async (_r, _s, { signal }) => getHome(signal),
     },
     trending: {
-      description: "Daftar trending MovieBox (perPage=18).",
-      timeout: 30_000,
+      description: "Trending items (movie atau all).",
       cache: 120,
       params: {
         page: { type: "number", minimum: 0, maximum: 500, description: "Halaman (default 0)" },
-      },
-      execute: async (_r, _s, { input, signal }) => getTrending(input.page || 0, signal),
-    },
-    detail: {
-      description: "Detail subject MovieBox (movie/TV) berdasarkan subjectId.",
-      timeout: 30_000,
-      cache: 120,
-      params: {
-        id: { type: "string", required: true, maxLength: 100, description: "subjectId MovieBox" },
-      },
-      execute: async (_r, _s, { input, signal }) => getDetail(input.id, signal),
-    },
-    play: {
-      description: "Resolve DASH .mpd / HLS .m3u8 + Edge-Cache-Cookie header.",
-      timeout: 60_000,
-      params: {
-        id: { type: "string", required: true, maxLength: 100, description: "subjectId MovieBox" },
-        se: { type: "number", minimum: 0, maximum: 100, description: "Season index (default 0)" },
-        ep: { type: "number", minimum: 0, maximum: 2000, description: "Episode index (default 0)" },
+        perPage: { type: "number", minimum: 1, maximum: 100, description: "Item per halaman (default 18)" },
+        type: { type: "string", enum: ["all", "movie"], description: "Tipe trending (default all)" },
       },
       execute: async (_r, _s, { input, signal }) =>
-        getPlay(input.id, input.se ?? 0, input.ep ?? 0, signal),
+        getTrending(input.page || 0, input.perPage || 18, input.type === "movie", signal),
     },
-    diag: {
-      description:
-        "Diagnostic: probe h5 & mobile endpoints, tampilkan status/body preview/error. " +
-        "Gunakan untuk cek apakah backend bisa menjangkau provider.",
-      timeout: 40_000,
+    search: {
+      description: "Cari film/series MovieBox.",
+      params: {
+        query: { type: "string", required: true, maxLength: 200, description: "Kata kunci" },
+        page: { type: "number", minimum: 1, maximum: 500, description: "Halaman (default 1)" },
+        perPage: { type: "number", minimum: 1, maximum: 100, description: "Item per halaman (default 10)" },
+        type: { type: "number", minimum: 0, maximum: 6, description: "0=All, 1=Movies, 2=Series, 6=Music" },
+      },
+      execute: async (_r, _s, { input, signal }) =>
+        search(input.query, input.page || 1, input.perPage || 10, input.type || 0, signal),
+    },
+    detail: {
+      description: "Detail film/series berdasarkan detailPath.",
+      cache: 120,
+      params: {
+        path: { type: "string", required: true, maxLength: 255, description: "detailPath dari hasil search/trending" },
+      },
+      execute: async (_r, _s, { input, signal }) => getDetail(input.path, signal),
+    },
+    stream: {
+      description: "Link streaming/play. Butuh subjectId dan detailPath.",
+      params: {
+        id: { type: "string", required: true, maxLength: 100, description: "subjectId" },
+        path: { type: "string", required: true, maxLength: 255, description: "detailPath" },
+        se: { type: "number", minimum: 0, maximum: 100, description: "Season (default 0)" },
+        ep: { type: "number", minimum: 0, maximum: 2000, description: "Episode (default 0)" },
+      },
+      execute: async (_r, _s, { input, signal }) =>
+        getStream(input.id, input.path, input.se || 0, input.ep || 0, signal),
+    },
+    ranking: {
+      description: "Daftar ranking (Trending, Indo Film, dll).",
+      cache: 300,
+      params: {
+        id: { type: "string", required: true, maxLength: 100, description: "Nama ranking (mis. TRENDING_NOW) atau ID" },
+        page: { type: "number", minimum: 1, maximum: 500, description: "Halaman (default 1)" },
+      },
+      execute: async (_r, _s, { input, signal }) =>
+        getRankingList(input.id, input.page || 1, 12, signal),
+    },
+    filter_movie: {
+      description: "Filter daftar film.",
+      params: {
+        genre: { type: "string", description: "Genre (default All)" },
+        country: { type: "string", description: "Negara (default All)" },
+        page: { type: "number", minimum: 1, description: "Halaman (default 1)" },
+      },
+      execute: async (_r, _s, { input, signal }) =>
+        filterMovie({ genre: input.genre, country: input.country, page: input.page }, signal),
+    },
+    filter_tv: {
+      description: "Filter daftar TV shows.",
+      params: {
+        country: { type: "string", description: "Negara (default All)" },
+        sort: { type: "string", description: "Urutan (default ForYou)" },
+        page: { type: "number", minimum: 1, description: "Halaman (default 1)" },
+      },
+      execute: async (_r, _s, { input, signal }) =>
+        filterTv({ country: input.country, sort: input.sort, page: input.page }, signal),
+    },
+    filter_animation: {
+      description: "Filter daftar animasi.",
+      params: {
+        country: { type: "string", description: "Negara (default All)" },
+        year: { type: "string", description: "Tahun (default All)" },
+        page: { type: "number", minimum: 1, description: "Halaman (default 1)" },
+      },
+      execute: async (_r, _s, { input, signal }) =>
+        filterAnimation({ country: input.country, year: input.year, page: input.page }, signal),
+    },
+    home_tabs: {
+      description: "Ambil tab list (ONEROOM_MOVIE).",
+      cache: 3600,
       params: {},
-      execute: async (_r, _s, { signal }) => runDiagnostics(signal),
-    },
+      execute: async (_r, _s, { signal }) => getMovieTab(signal),
+    }
   },
 };
