@@ -5,13 +5,36 @@ import crypto from "node:crypto";
 const H5 = "https://h5-api.aoneroom.com/wefeed-h5api-bff";
 const MOBILE = "https://api3.aoneroom.com";
 const HOST = "officialmoviebox.com";
-const GATEWAY_KEY = Buffer.from("76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O", "base64");
 
+const GATEWAY_KEY = (() => {
+  const raw = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
+  try {
+    return Buffer.from(raw, "base64");
+  } catch {
+    // Fallback Worker tanpa nodejs_compat
+    const bin = atob(raw);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  }
+})();
+
+// Lebih luas: kemungkinan redirect ke subdomain aoneroom.com / officialmoviebox.com
 const ALLOWED_HOSTS = [
+  "aoneroom.com",
+  "www.aoneroom.com",
   "h5-api.aoneroom.com",
+  "api.aoneroom.com",
+  "api1.aoneroom.com",
+  "api2.aoneroom.com",
   "api3.aoneroom.com",
+  "api4.aoneroom.com",
+  "api5.aoneroom.com",
+  "cdn.aoneroom.com",
+  "static.aoneroom.com",
   "officialmoviebox.com",
   "www.officialmoviebox.com",
+  "m.officialmoviebox.com",
 ];
 
 const UA_H5 =
@@ -124,10 +147,14 @@ async function h5Get(path, signal) {
     },
     signal
   );
+  // ← diagnosa: bawa status + preview body jika JSON.parse gagal
   try {
     return JSON.parse(r.body);
   } catch {
-    throw new Error("bad json");
+    const preview = String(r.body || "").slice(0, 300).replace(/\s+/g, " ");
+    throw new Error(
+      `MovieBox non-JSON response (status=${r.status}, url=${url}): ${preview}`
+    );
   }
 }
 
@@ -250,7 +277,10 @@ async function getPlay(id, se, ep, signal) {
   try {
     j = JSON.parse(r.body);
   } catch {
-    throw new Error("play bad json " + r.body.slice(0, 100));
+    const preview = String(r.body || "").slice(0, 300).replace(/\s+/g, " ");
+    throw new Error(
+      `MovieBox play non-JSON (status=${r.status}): ${preview}`
+    );
   }
   if (j.code !== 0) throw new Error(j.message || "play error " + r.status);
 
@@ -265,7 +295,7 @@ async function getPlay(id, se, ep, signal) {
       size: s.size,
       duration: s.duration,
       codec: s.codecName,
-      trapUrl: s.url, // dummy — jangan dipakai
+      trapUrl: s.url,
       signCookie: s.signCookie,
       dash: decoded && decoded.mpd,
       hls: decoded && decoded.m3u8,
@@ -290,7 +320,88 @@ async function getPlay(id, se, ep, signal) {
   };
 }
 
-/* ===== PLUGIN: 1 file → 4 sub-route ===== */
+/* ===== DIAGNOSTIC ===== */
+async function runDiagnostics(signal) {
+  const probes = {
+    "h5.home": {
+      url: `${H5}/home?host=${HOST}`,
+      headers: {
+        "User-Agent": UA_H5,
+        Accept: "application/json",
+        Referer: `https://${HOST}/`,
+        Origin: `https://${HOST}`,
+      },
+    },
+    "h5.trending": {
+      url: `${H5}/subject/trending?page=0&perPage=18`,
+      headers: {
+        "User-Agent": UA_H5,
+        Accept: "application/json",
+        Referer: `https://${HOST}/`,
+        Origin: `https://${HOST}`,
+      },
+    },
+    "mobile.bootstrap": {
+      url: `${MOBILE}/wefeed-mobile-bff/tab-operating?page=1&tabId=0`,
+      headers: {
+        "User-Agent": UA_MOB,
+        Accept: "application/json",
+        "Content-Type": "application/json;charset=UTF-8",
+        "X-M-Version": "4.0.02",
+        "X-Client-Token": clientToken(),
+        "X-Client-Info": clientInfo(),
+        "X-Client-Status": "0",
+        "x-tr-signature": trSignature(
+          "GET",
+          `${MOBILE}/wefeed-mobile-bff/tab-operating?page=1&tabId=0`
+        ),
+      },
+    },
+  };
+
+  const results = {};
+  for (const [name, p] of Object.entries(probes)) {
+    const start = Date.now();
+    try {
+      const res = await safeFetch(
+        p.url,
+        { allowedHosts: ALLOWED_HOSTS, headers: p.headers, signal },
+        15000
+      );
+      const text = await res.text();
+      results[name] = {
+        url: p.url,
+        ok: res.ok,
+        status: res.status,
+        durationMs: Date.now() - start,
+        contentType: res.headers.get("content-type"),
+        bodyPreview: text.slice(0, 400),
+      };
+    } catch (err) {
+      results[name] = {
+        url: p.url,
+        durationMs: Date.now() - start,
+        error: err.message,
+        errorName: err.name,
+      };
+    }
+  }
+
+  // Info runtime
+  results.runtime = {
+    hasBuffer: typeof Buffer !== "undefined",
+    hasAtob: typeof atob === "function",
+    hasCryptoCreateHash: typeof crypto?.createHash === "function",
+    hasCryptoCreateHmac: typeof crypto?.createHmac === "function",
+    nodeVersion: (() => {
+      try { return process?.version || null; } catch { return null; }
+    })(),
+  };
+
+  return results;
+}
+
+/* ===== PLUGIN: 1 file → 5 sub-route ===== */
 export default {
   name: "MovieBox",
   category: "film",
@@ -298,7 +409,7 @@ export default {
   timeout: 60_000,
   routes: {
     home: {
-      description: "Home sections MovieBox: platforms + operating list (banner/subjects).",
+      description: "Home sections MovieBox: platforms + operating list.",
       timeout: 30_000,
       cache: 300,
       params: {},
@@ -318,20 +429,28 @@ export default {
       timeout: 30_000,
       cache: 120,
       params: {
-        id: { type: "string", required: true, maxLength: 100, description: "subjectId MovieBox (string numerik panjang)" },
+        id: { type: "string", required: true, maxLength: 100, description: "subjectId MovieBox" },
       },
       execute: async (_r, _s, { input, signal }) => getDetail(input.id, signal),
     },
     play: {
-      description: "Resolve stream (DASH .mpd / HLS .m3u8) untuk subject/episode. Pemutaran butuh header Cookie: Edge-Cache-Cookie=<signCookie>.",
+      description: "Resolve DASH .mpd / HLS .m3u8 + Edge-Cache-Cookie header.",
       timeout: 60_000,
       params: {
         id: { type: "string", required: true, maxLength: 100, description: "subjectId MovieBox" },
-        se: { type: "number", minimum: 0, maximum: 100, description: "Season index (0 untuk movie / default TV)" },
-        ep: { type: "number", minimum: 0, maximum: 2000, description: "Episode index (0 untuk movie / default TV)" },
+        se: { type: "number", minimum: 0, maximum: 100, description: "Season index (default 0)" },
+        ep: { type: "number", minimum: 0, maximum: 2000, description: "Episode index (default 0)" },
       },
       execute: async (_r, _s, { input, signal }) =>
         getPlay(input.id, input.se ?? 0, input.ep ?? 0, signal),
+    },
+    diag: {
+      description:
+        "Diagnostic: probe h5 & mobile endpoints, tampilkan status/body preview/error. " +
+        "Gunakan untuk cek apakah backend bisa menjangkau provider.",
+      timeout: 40_000,
+      params: {},
+      execute: async (_r, _s, { signal }) => runDiagnostics(signal),
     },
   },
 };
