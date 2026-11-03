@@ -1,25 +1,14 @@
 import { safeFetch } from "../../plugin-runtime.js";
-import crypto from "node:crypto";
+import CryptoJS from "crypto-js";
 
 /* ===== KONFIG ===== */
 const H5 = "https://h5-api.aoneroom.com/wefeed-h5api-bff";
 const MOBILE = "https://api3.aoneroom.com";
 const HOST = "officialmoviebox.com";
 
-const GATEWAY_KEY = (() => {
-  const raw = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
-  try {
-    return Buffer.from(raw, "base64");
-  } catch {
-    // Fallback Worker tanpa nodejs_compat
-    const bin = atob(raw);
-    const u8 = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    return u8;
-  }
-})();
+// Menggunakan CryptoJS untuk decode Base64 agar aman di Cloudflare Workers
+const GATEWAY_KEY = CryptoJS.enc.Base64.parse("76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O");
 
-// Lebih luas: kemungkinan redirect ke subdomain aoneroom.com / officialmoviebox.com
 const ALLOWED_HOSTS = [
   "aoneroom.com",
   "www.aoneroom.com",
@@ -37,16 +26,14 @@ const ALLOWED_HOSTS = [
   "m.officialmoviebox.com",
 ];
 
-const UA_H5 =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-const UA_MOB =
-  "com.community.oneroom/50020126 (Linux; U; Android 14; en_US; Pixel 6; Build/UQ1A)";
+const UA_H5 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+const UA_MOB = "com.community.oneroom/50020126 (Linux; U; Android 14; en_US; Pixel 6; Build/UQ1A)";
 
 let guestJwt = null;
 
 /* ===== HELPER ===== */
 function md5hex(s) {
-  return crypto.createHash("md5").update(s).digest("hex");
+  return CryptoJS.MD5(s).toString();
 }
 
 function clientToken() {
@@ -89,7 +76,9 @@ function trSignature(method, fullUrl, body) {
     bodyMd5,
     resource,
   ].join("\n");
-  const dig = crypto.createHmac("md5", GATEWAY_KEY).update(canon).digest("base64");
+  
+  // Menggunakan CryptoJS HmacMD5
+  const dig = CryptoJS.HmacMD5(canon, GATEWAY_KEY).toString(CryptoJS.enc.Base64);
   return ts + "|2|" + dig;
 }
 
@@ -147,7 +136,6 @@ async function h5Get(path, signal) {
     },
     signal
   );
-  // ← diagnosa: bawa status + preview body jika JSON.parse gagal
   try {
     return JSON.parse(r.body);
   } catch {
@@ -163,7 +151,8 @@ function decodeSignCookie(sc) {
   const m = String(sc).match(/urlprefix=([^:]+)/);
   if (!m) return null;
   try {
-    const prefix = Buffer.from(m[1], "base64").toString("utf8");
+    // atob didukung secara native di Cloudflare Workers (menggantikan Buffer)
+    const prefix = atob(m[1]);
     return {
       prefix,
       mpd: prefix.replace(/\/?$/, "/") + "index.mpd",
@@ -295,7 +284,7 @@ async function getPlay(id, se, ep, signal) {
       size: s.size,
       duration: s.duration,
       codec: s.codecName,
-      trapUrl: s.url,
+      trapUrl: s.url, // dummy — jangan dipakai
       signCookie: s.signCookie,
       dash: decoded && decoded.mpd,
       hls: decoded && decoded.m3u8,
@@ -391,17 +380,13 @@ async function runDiagnostics(signal) {
   results.runtime = {
     hasBuffer: typeof Buffer !== "undefined",
     hasAtob: typeof atob === "function",
-    hasCryptoCreateHash: typeof crypto?.createHash === "function",
-    hasCryptoCreateHmac: typeof crypto?.createHmac === "function",
-    nodeVersion: (() => {
-      try { return process?.version || null; } catch { return null; }
-    })(),
+    hasCryptoJS: typeof CryptoJS !== "undefined",
   };
 
   return results;
 }
 
-/* ===== PLUGIN: 1 file → 5 sub-route ===== */
+/* ===== PLUGIN ===== */
 export default {
   name: "MovieBox",
   category: "film",
