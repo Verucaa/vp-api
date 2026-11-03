@@ -2,6 +2,7 @@ import film7reels from "../plugins/film/7reels.js";
 import filmHura from "../plugins/film/hura.js";
 import moviebox from "../plugins/film/moviebox.js";
 import animein from "../plugins/anime/animein.js";
+import komikindo from "../plugins/comic/komikindo.js";
 import ip from "../plugins/info/ip.js";
 import ping from "../plugins/info/ping.js";
 
@@ -50,6 +51,7 @@ export const activeWorkerPlugins = expandRoutes([
   { endpoint: "/film/hura", handler: filmHura },
   { endpoint: "/film/moviebox", handler: moviebox },   // ← baru
   { endpoint: "/anime/animein", handler: animein },
+  { endpoint: "/comic/komikindo", handler: komikindo},
 ]);
 
 // Semua yang dihapus, tidak perlu di-disabled lagi — cukup hapus array ini
