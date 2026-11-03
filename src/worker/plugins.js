@@ -9,6 +9,7 @@ import soundcloud from "../plugins/search/soundcloud.js";
 import tempmail from "../plugins/tools/tempmail.js";
 import film7reels from "../plugins/film/7reels.js";
 import filmHura from "../plugins/film/hura.js";
+import animein from "../plugins/anime/animein.js";
 
 function expandRoutes(entries) {
   const out = [];
@@ -49,6 +50,7 @@ export const activeWorkerPlugins = expandRoutes([
   { endpoint: "/tools/tempmail", handler: tempmail },
   { endpoint: "/film/7reels", handler: film7reels },
   { endpoint: "/film/hura", handler: filmHura },
+  { endpoint: "/anime/animein", handler: animein },
 ]);
 
 export const disabledWorkerPlugins = [
