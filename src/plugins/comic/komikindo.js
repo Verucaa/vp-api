@@ -50,7 +50,7 @@ function cleanText(text) {
 }
 
 function buildResponse(page, url, pagination, data) {
-  const result = { creator: "rynaqrtz", page, url };
+  const result = { creator: "Veruu", page, url };
   if (
     pagination &&
     (pagination.total !== null || pagination.current !== 1 || pagination.hasNext)
