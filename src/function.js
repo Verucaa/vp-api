@@ -286,9 +286,9 @@ const parsePluginPath = (filePath, baseDir) => {
 };
 
 /**
- * Register a plugin that declares `routes: { ... }` on its default export.
- * Each sub-route becomes an independent entry in the `plugins` Map so the
- * existing app-core / registry / OpenAPI code sees N routes without changes.
+ * Expand a plugin that declares `routes: { ... }` on its default export.
+ * Each sub-route is registered as an independent entry in the `plugins` Map,
+ * so app-core, /api/endpoints, and /openapi.json see N routes without changes.
  */
 const registerMultiRoutePlugin = (parsed, handler) => {
   const baseMethods = Array.isArray(handler.method) ? handler.method : [handler.method || "GET"];
@@ -316,6 +316,7 @@ const registerMultiRoutePlugin = (parsed, handler) => {
       params: def.params || {},
       cache: typeof def.cache === "number" && def.cache > 0 ? def.cache : baseCache,
       timeout: Math.min(Math.max(Number(def.timeout) || baseTimeout, 1000), 300_000),
+      hidden: def.hidden === true || handler.hidden === true,
       execute: def.execute,
     };
     plugins.set(routePath, plugin);
@@ -335,12 +336,11 @@ export const loadPlugin = async (filePath) => {
     const handler = module.default || module;
     if (!handler) return null;
 
-    // Multi-route: plugin dengan `routes: { ... }` tanpa top-level `execute`
-    if (handler.routes && typeof handler.routes === "object" && typeof handler.execute !== "function") {
-      return registerMultiRoutePlugin(parsed, handler);
-    }
+    // Multi-route: plugin dengan `routes: { ... }` yang tidak kosong
+    const hasRoutes = handler.routes && typeof handler.routes === "object" && Object.keys(handler.routes).length > 0;
+    if (hasRoutes) return registerMultiRoutePlugin(parsed, handler);
 
-    // Single route (perilaku lama, tidak berubah)
+    // Single-route (perilaku lama, tidak berubah)
     if (typeof handler.execute !== "function") return null;
     const methods = Array.isArray(handler.method) ? handler.method : [handler.method || "GET"];
     const plugin = {
@@ -352,6 +352,7 @@ export const loadPlugin = async (filePath) => {
       params: handler.params || {},
       cache: typeof handler.cache === "number" && handler.cache > 0 ? handler.cache : null,
       timeout: Math.min(Math.max(Number(handler.timeout) || 45_000, 1000), 300_000),
+      hidden: handler.hidden === true,
       execute: handler.execute
     };
     plugins.set(parsed.routePath, plugin);
@@ -366,7 +367,7 @@ export const unloadPlugin = (filePath) => {
   const parsed = parsePluginPath(filePath, getPluginsDir());
   if (!parsed) return;
   plugins.delete(parsed.routePath);
-  // Hapus semua sub-route yang di-expand dari file ini
+  // Hapus sub-routes yang di-expand dari file ini (multi-route)
   const prefix = `${parsed.routePath}/`;
   for (const key of [...plugins.keys()]) {
     if (key.startsWith(prefix)) plugins.delete(key);
@@ -405,10 +406,19 @@ export const resolveSingleRouteOnDemand = async (category, pluginName) => {
   for (const filePath of candidates) {
     const relative = path.relative(baseDir, filePath);
     if (relative.startsWith("../") || path.isAbsolute(relative)) continue;
-    try { if (fs.existsSync(filePath)) return await loadPlugin(filePath); } catch {}
+    try {
+      if (fs.existsSync(filePath)) {
+        const loaded = await loadPlugin(filePath);
+        // Setelah load, lookup di map — bisa langsung ketemu untuk multi-route juga
+        const routeKey = `/${category}/${pluginName}`;
+        const found = plugins.get(routeKey);
+        if (found) return found;
+        if (loaded) return loaded;
+      }
+    } catch {}
   }
 
-  // 2. Fallback: multi-route plugin di parent (mis. /film/7reels/homepage → film/7reels.js)
+  // 2. Fallback: parent multi-route (mis. /film/7reels/homepage → film/7reels.js)
   if (normalizedPlugin.length > 1) {
     const parentName = normalizedPlugin[0];
     const parentCandidates = [
@@ -420,9 +430,9 @@ export const resolveSingleRouteOnDemand = async (category, pluginName) => {
       if (relative.startsWith("../") || path.isAbsolute(relative)) continue;
       try {
         if (fs.existsSync(filePath)) {
-          await loadPlugin(filePath); // expand semua sub-route ke `plugins`
-          const requested = plugins.get(`/${category}/${pluginName}`);
-          if (requested) return requested;
+          await loadPlugin(filePath); // akan expand semua sub-route ke `plugins`
+          const found = plugins.get(`/${category}/${pluginName}`);
+          if (found) return found;
         }
       } catch {}
     }
