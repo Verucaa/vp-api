@@ -73,7 +73,10 @@ export const createApp = (runtime) => {
   app.get("/api/endpoints", async (_req, res, next) => {
     try { await ensurePluginsLoaded(); } catch (error) { return next(error); }
     const endpoints = {};
+    let visibleCount = 0;
     for (const [routePath, data] of plugins.entries()) {
+      if (data.hidden) continue;
+      visibleCount++;
       const category = data.category || "general";
       (endpoints[category] ||= []).push({
         name: data.name,
@@ -86,6 +89,8 @@ export const createApp = (runtime) => {
       });
     }
     for (const data of disabledEndpoints) {
+      if (data.hidden) continue;
+      visibleCount++;
       const category = data.category || "general";
       (endpoints[category] ||= []).push({
         name: data.name,
@@ -98,13 +103,14 @@ export const createApp = (runtime) => {
         unavailable_reason: data.unavailable_reason
       });
     }
-    return sendSuccess(res, { total: plugins.size + disabledEndpoints.length, endpoints });
+    return sendSuccess(res, { total: visibleCount, endpoints });
   });
 
   const openApiType = (type) => ({ string: "string", number: "number", integer: "integer", boolean: "boolean", array: "array", object: "object" }[type] || "string");
   const buildOpenApiDocument = () => {
     const paths = {};
     for (const [routePath, endpoint] of plugins.entries()) {
+      if (endpoint.hidden) continue;
       const pathItem = paths[routePath] ||= {};
       for (const methodName of endpoint.method) {
         const method = methodName.toLowerCase();
@@ -162,6 +168,7 @@ export const createApp = (runtime) => {
       }
     }
     for (const endpoint of disabledEndpoints) {
+      if (endpoint.hidden) continue;
       const pathItem = paths[endpoint.endpoint] ||= {};
       for (const methodName of endpoint.method || ["GET"]) {
         const method = String(methodName).toLowerCase();
