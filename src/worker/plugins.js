@@ -6,7 +6,6 @@ import komikindo from "../plugins/comic/komikindo.js";
 import ip from "../plugins/info/ip.js";
 import ping from "../plugins/info/ping.js";
 
-
 function expandRoutes(entries) {
   const out = [];
   for (const entry of entries) {
@@ -46,15 +45,9 @@ export const activeWorkerPlugins = expandRoutes([
   { endpoint: "/info/ping", handler: ping },
   { endpoint: "/film/7reels", handler: film7reels },
   { endpoint: "/film/hura", handler: filmHura },
+  { endpoint: "/film/moviebox", handler: moviebox }, 
   { endpoint: "/anime/animein", handler: animein },
-  { endpoint: "/film/7reels", handler: film7reels },
-  { endpoint: "/film/hura", handler: filmHura },
-  { endpoint: "/film/moviebox", handler: moviebox },   // ← baru
-  { endpoint: "/anime/animein", handler: animein },
-  { endpoint: "/comic/komikindo", handler: komikindo},
+  { endpoint: "/comic/komikindo", handler: komikindo },
 ]);
 
-// Semua yang dihapus, tidak perlu di-disabled lagi — cukup hapus array ini
-// kalau loader Worker Anda masih membaca `disabledWorkerPlugins`,
-// set ke array kosong.
 export const disabledWorkerPlugins = [];
