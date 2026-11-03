@@ -10,7 +10,6 @@ function getProxySecret() {
       return process.env.ANIMEIN_PROXY_SECRET;
     }
   } catch {}
-  // Nilai ini juga tertanam di bundle JS publik animeinweb.com, bukan rahasia murni.
   return "animein-secure-proxy-key-123";
 }
 
@@ -47,6 +46,23 @@ async function apiRequest(path, params, signal) {
   return json?.data;
 }
 
+/* ===== HELPER VALIDASI ID ===== */
+function normalizeId(id) {
+  return String(id ?? "").trim();
+}
+
+function assertIdMatch(kind, requested, actual, hint) {
+  if (actual == null || actual === "") return;
+  const req = normalizeId(requested);
+  const act = normalizeId(actual);
+  if (req !== act) {
+    throw new Error(
+      `AnimeIn mengembalikan ${kind} yang tidak cocok. ` +
+      `Diminta id=${req}, diterima id=${act}. ${hint || ""}`.trim()
+    );
+  }
+}
+
 /* ===== ACTIONS ===== */
 async function getHome(day, limit, signal) {
   return await apiRequest("/3/2/home/data", { day: day || "SENIN", limit: String(limit || 20) }, signal);
@@ -67,13 +83,21 @@ async function getSchedule(day, signal) {
 }
 
 async function getDetail(movieId, signal) {
-  return await apiRequest(`/3/2/movie/detail/${movieId}`, null, signal);
+  const requestedId = normalizeId(movieId);
+  const data = await apiRequest(`/3/2/movie/detail/${encodeURIComponent(requestedId)}`, null, signal);
+  assertIdMatch(
+    "movie",
+    requestedId,
+    data?.movie?.id,
+    "Pastikan 'id' adalah ID movie AnimeIn (bukan ID episode)."
+  );
+  return data;
 }
 
 async function getEpisodes(movieId, page, searchStr, signal) {
   const params = { page: String(page ?? 0) };
   if (searchStr) params.search = searchStr;
-  return await apiRequest(`/3/2/movie/episode/${movieId}`, params, signal);
+  return await apiRequest(`/3/2/movie/episode/${encodeURIComponent(normalizeId(movieId))}`, params, signal);
 }
 
 async function getAllEpisodes(movieId, maxPages, signal) {
@@ -98,23 +122,24 @@ async function getAllEpisodes(movieId, maxPages, signal) {
 }
 
 async function getStream(episodeId, signal) {
-  return await apiRequest(`/3/2/episode/streamnew/${episodeId}`, null, signal);
+  const requestedId = normalizeId(episodeId);
+  const data = await apiRequest(
+    `/3/2/episode/streamnew/${encodeURIComponent(requestedId)}`,
+    null,
+    signal
+  );
+  assertIdMatch(
+    "episode",
+    requestedId,
+    data?.episode?.id,
+    "Pastikan 'id' yang dikirim adalah ID episode (bukan ID movie). " +
+    "Dapatkan ID episode lewat /anime/animein/episodes?id=<movieId>."
+  );
+  return data;
 }
 
 async function getTrailers(movieId, signal) {
-  return await apiRequest("/data/movie/trailer/list", { id_movie: String(movieId) }, signal);
-}
-
-async function getComments(episodeId, sort, page, signal) {
-  return await apiRequest("/3/2/comment/data", {
-    id_episode: String(episodeId),
-    sort: sort || "top",
-    page: String(page ?? 0),
-  }, signal);
-}
-
-async function getLiveChat(signal) {
-  return await apiRequest("/3/2/chat/data", null, signal);
+  return await apiRequest("/data/movie/trailer/list", { id_movie: normalizeId(movieId) }, signal);
 }
 
 async function getAllComplete(movieId, opts, signal) {
@@ -146,8 +171,8 @@ async function getAllComplete(movieId, opts, signal) {
     try {
       const stream = await getStream(ep.id, signal);
       episodesWithStream.push({ ...ep, streams: stream?.server || [] });
-    } catch {
-      episodesWithStream.push({ ...ep, streams: [] });
+    } catch (err) {
+      episodesWithStream.push({ ...ep, streams: [], stream_error: err.message });
     }
   }
 
@@ -161,7 +186,7 @@ async function getAllComplete(movieId, opts, signal) {
   };
 }
 
-/* ===== PLUGIN: 1 file → 11 sub-route ===== */
+/* ===== PLUGIN: 1 file → 9 sub-route ===== */
 export default {
   name: "AnimeIn",
   category: "anime",
@@ -213,21 +238,21 @@ export default {
     },
 
     detail: {
-      description: "Detail anime: movie, episode terbaru, dan season terkait.",
+      description: "Detail anime (by ID movie AnimeIn, bukan ID episode). Movie/episode/season terkait.",
       timeout: 30_000,
       cache: 60,
       params: {
-        id: { type: "number", required: true, minimum: 1, description: "ID movie AnimeIn" },
+        id: { type: "string", required: true, maxLength: 100, description: "ID movie AnimeIn (string, bisa numeric panjang)" },
       },
       execute: async (_r, _s, { input, signal }) => getDetail(input.id, signal),
     },
 
     episodes: {
-      description: "Seluruh daftar episode satu anime (auto-paginate).",
+      description: "Seluruh daftar episode satu anime (auto-paginate). Pakai ID movie.",
       timeout: 60_000,
       cache: 60,
       params: {
-        id: { type: "number", required: true, minimum: 1, description: "ID movie AnimeIn" },
+        id: { type: "string", required: true, maxLength: 100, description: "ID movie AnimeIn" },
         maxPages: { type: "number", minimum: 1, maximum: 50, description: "Batas halaman fetch (default 20)" },
       },
       execute: async (_r, _s, { input, signal }) => {
@@ -237,48 +262,33 @@ export default {
     },
 
     stream: {
-      description: "Server streaming & direct MP4 untuk satu episode. URL butuh header Referer https://animeinweb.com/.",
+      description:
+        "Server streaming & direct MP4 untuk SATU EPISODE. " +
+        "PENTING: 'id' adalah ID EPISODE (bukan ID movie). " +
+        "Ambil ID episode dulu lewat /anime/animein/episodes?id=<movieId>. " +
+        "URL player butuh header Referer https://animeinweb.com/ saat diputar/diunduh.",
       timeout: 30_000,
       params: {
-        id: { type: "number", required: true, minimum: 1, description: "ID episode AnimeIn" },
+        id: { type: "string", required: true, maxLength: 100, description: "ID episode AnimeIn (string)" },
       },
       execute: async (_r, _s, { input, signal }) => getStream(input.id, signal),
     },
 
     trailers: {
-      description: "Daftar trailer YouTube resmi untuk movie.",
+      description: "Daftar trailer YouTube resmi untuk movie (by ID movie).",
       timeout: 20_000,
       cache: 300,
       params: {
-        id: { type: "number", required: true, minimum: 1, description: "ID movie AnimeIn" },
+        id: { type: "string", required: true, maxLength: 100, description: "ID movie AnimeIn" },
       },
       execute: async (_r, _s, { input, signal }) => getTrailers(input.id, signal),
-    },
-
-    comments: {
-      description: "Komentar untuk satu episode.",
-      timeout: 20_000,
-      params: {
-        id: { type: "number", required: true, minimum: 1, description: "ID episode AnimeIn" },
-        sort: { type: "string", enum: ["top", "new"], description: "Sort (default top)" },
-        page: { type: "number", minimum: 0, maximum: 200, description: "Halaman (default 0)" },
-      },
-      execute: async (_r, _s, { input, signal }) => getComments(input.id, input.sort, input.page, signal),
-    },
-
-    chat: {
-      description: "Pesan live chat komunitas terbaru.",
-      timeout: 20_000,
-      cache: 30,
-      params: {},
-      execute: async (_r, _s, { signal }) => getLiveChat(signal),
     },
 
     all: {
       description: "Bundle: detail + seasons + semua episode + trailer. Set withStreams=true untuk menyertakan stream per episode (mahal).",
       timeout: 180_000,
       params: {
-        id: { type: "number", required: true, minimum: 1, description: "ID movie AnimeIn" },
+        id: { type: "string", required: true, maxLength: 100, description: "ID movie AnimeIn" },
         withStreams: { type: "boolean", description: "Sertakan streams per episode (default false)" },
         maxStreams: { type: "number", minimum: 1, maximum: 100, description: "Batas episode yang di-resolve stream (default 20)" },
       },
