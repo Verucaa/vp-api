@@ -2,6 +2,7 @@ import film7reels from "../plugins/film/7reels.js";
 import filmHura from "../plugins/film/hura.js";
 import moviebox from "../plugins/film/moviebox.js";
 import animein from "../plugins/anime/animein.js";
+import kura from "../plugins/anime/kura.js";
 import komikindo from "../plugins/comic/komikindo.js";
 import ip from "../plugins/info/ip.js";
 import ping from "../plugins/info/ping.js";
@@ -47,6 +48,7 @@ export const activeWorkerPlugins = expandRoutes([
   { endpoint: "/film/hura", handler: filmHura },
   { endpoint: "/film/moviebox", handler: moviebox }, 
   { endpoint: "/anime/animein", handler: animein },
+  { endpoint: "/anime/kura", handler: kura },
   { endpoint: "/comic/komikindo", handler: komikindo },
 ]);
 
