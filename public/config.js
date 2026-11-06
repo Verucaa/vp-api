@@ -48,6 +48,12 @@ window.WOLF_CONFIG = {
     { name: "AnimeIn Trailers", category: "anime", endpoint: "/anime/animein/trailers", method: ["GET", "POST"], description: "Trailer YouTube resmi per movie.", params: { id: { type: "number", required: true, minimum: 1, description: "ID movie AnimeIn" } } },
     { name: "AnimeIn Bundle", category: "anime", endpoint: "/anime/animein/all", method: ["GET", "POST"], description: "Bundle detail + seasons + semua episode + trailer. withStreams=true untuk stream per episode.", params: { id: { type: "number", required: true, minimum: 1, description: "ID movie AnimeIn" }, withStreams: { type: "boolean", required: false, description: "Sertakan streams per episode (default false)" }, maxStreams: { type: "number", required: false, minimum: 1, maximum: 100, description: "Batas episode stream (default 20)" } } },
 
+    /* ===== ANIME · Kuramanime ===== */
+    { name: "KuraNime Search", category: "anime", endpoint: "/anime/kura/search", method: ["GET", "POST"], description: "Cari anime di Kuramanime.", params: { query: { type: "string", required: true, maxLength: 200, description: "Judul anime" } } },
+    { name: "KuraNime Detail", category: "anime", endpoint: "/anime/kura/detail", method: ["GET", "POST"], description: "Detail anime berdasarkan URL.", params: { url: { type: "string", required: true, maxLength: 500, description: "URL detail anime" } } },
+    { name: "KuraNime Episode", category: "anime", endpoint: "/anime/kura/episode", method: ["GET", "POST"], description: "Link streaming & download episode.", params: { url: { type: "string", required: true, maxLength: 500, description: "URL episode" } } },
+    { name: "KuraNime Batch", category: "anime", endpoint: "/anime/kura/batch", method: ["GET", "POST"], description: "Link streaming & download batch.", params: { url: { type: "string", required: true, maxLength: 500, description: "URL batch" } } },
+
     /* ===== FILM · MovieBox ===== */
     { name: "MovieBox Home", category: "film", endpoint: "/film/moviebox/home", method: ["GET", "POST"], description: "Homepage MovieBox.", params: {} },
     { name: "MovieBox Trending", category: "film", endpoint: "/film/moviebox/trending", method: ["GET", "POST"], description: "Trending items.", params: { page: { type: "number", required: false }, type: { type: "string", required: false, enum: ["all", "movie"] } } },
